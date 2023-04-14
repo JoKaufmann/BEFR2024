@@ -1,0 +1,3 @@
+[submodule "rqt_virtual_joystick"]
+	path = rqt_virtual_joystick
+	url = https://github.com/robot-perception-group/rqt_virtual_joystick.git
