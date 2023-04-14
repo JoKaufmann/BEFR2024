@@ -16,6 +16,7 @@ Example robots and code for interfacing Gazebo with ROS -- multicopter edition
 * Make a catkin workspace and put this repository in the src subfolder (http://wiki.ros.org/catkin/Tutorials/create_a_workspace)
 * download submodules with ```git submodule update --init --recursive```
 * Run "catkin_make" in the catkin workspace to compile all packages.
+* Run ```source devel/setup.bash``` to activate the catkin workspace environment.
 
 ## Quick Start
 
