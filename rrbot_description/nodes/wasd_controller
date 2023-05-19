@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+from pynput import keyboard
+import rospy
+from sensor_msgs.msg import Joy
+
+rospy.init_node('wasd_controller')
+right_stick_pub = rospy.Publisher('right_stick',Joy, queue_size=3)
+left_stick_pub = rospy.Publisher('left_stick',Joy, queue_size=3)
+
+
+
+current = set()
+wa = {keyboard.KeyCode.from_char('a'),keyboard.KeyCode.from_char('w')}
+wd = {keyboard.KeyCode.from_char('w'),keyboard.KeyCode.from_char('d')}
+ds = {keyboard.KeyCode.from_char('d'),keyboard.KeyCode.from_char('s')}
+sa = {keyboard.KeyCode.from_char('s'),keyboard.KeyCode.from_char('a')}
+w = {keyboard.KeyCode.from_char('w')}
+s = {keyboard.KeyCode.from_char('s')}
+a = {keyboard.KeyCode.from_char('a')}
+d = {keyboard.KeyCode.from_char('d')}
+q = {keyboard.KeyCode.from_char('q')}
+e = {keyboard.KeyCode.from_char('e')}
+shift = {keyboard.Key.shift}
+ctrl = {keyboard.Key.ctrl}
+throttle = 0
+
+def on_press(key):
+    if key == keyboard.Key.esc:
+        listener.stop()
+
+    current.add(key)
+    global throttle
+    yaw,roll,pitch = 0,0,0
+    if current == w:
+        pitch = 1
+    if current == s:
+        pitch = -1
+    if current == a: 
+        roll = 1
+    if current == d:
+        roll = -1
+    if current == e:
+        yaw = -1
+    if current == q:
+        yaw = 1
+    if current == shift:
+        throttle = throttle + 0.1
+    if current == ctrl:
+        throttle = throttle - 0.1
+    if current == wa:
+        pitch =1
+        roll = 1
+    if current == wd:
+        pitch = 1
+        roll = -1
+    if current == ds:
+        pitch = -1
+        roll = -1
+    if current == sa:
+        pitch = -1
+        roll = 1
+
+
+    left_stick_msg = Joy()
+    left_stick_msg.axes = [float(yaw),float(throttle)]
+    left_stick_msg.buttons = [0]*18
+    left_stick_msg.header.stamp = rospy.Time.now()
+
+    right_stick_msg = Joy()
+    right_stick_msg.axes = [-float(roll),-float(pitch)]
+    right_stick_msg.buttons = [0]*18
+    right_stick_msg.header.stamp = rospy.Time.now()
+
+    right_stick_pub.publish(right_stick_msg)
+    left_stick_pub.publish(left_stick_msg)
+
+def on_release(key):
+    global throttle
+    try:
+        current.remove(key)
+        if len(current)==0:
+            print('stop')
+            yaw,roll,pitch = 0,0,0
+
+            left_stick_msg = Joy()
+            left_stick_msg.axes = [-float(yaw),float(throttle)]
+            left_stick_msg.buttons = [0]*18
+            left_stick_msg.header.stamp = rospy.Time.now()
+            left_stick_pub.publish(left_stick_msg)
+
+            right_stick_msg = Joy()
+            right_stick_msg.axes = [-float(roll),-float(pitch)]
+            right_stick_msg.buttons = [0]*18
+            right_stick_msg.header.stamp = rospy.Time.now()
+            right_stick_pub.publish(right_stick_msg)
+
+    except KeyError:
+        pass
+
+
+with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+    listener.join()
+
+    
+
+    
