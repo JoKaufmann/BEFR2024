@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 import rospy
 
+import nav_msgs.msg
 import sensor_msgs.msg
 import std_msgs.msg
+import numpy as np
+import tf
+import math
 
 throttle=0.0
 pitch=0.0
@@ -10,8 +14,22 @@ roll=0.0
 yaw=0.0
 pub=[]
 
+PI_i=np.zeros(3)
+PI_kp=np.array([0.3,0.3,0.8])
+PI_ki=np.array([0.05,0.05,0.3])
+PI_lim=np.array([0.,0.,0.3])
+OPI_i=np.zeros(3)
+OPI_kp=np.array([0.4,0.4,0.4])
+OPI_ki=np.array([40.,40.,40.0])
+OPI_lim=np.array([0.05,0.05,0.1])
+MIX=np.array([[-1,-1,-1,1],[1,-1,1,1],[1,1,-1,1],[-1,1,1,1]],dtype=float)
+max_rpm=400
+vel=np.array([0.,0.,0.])
+pos=np.array([0.,0.,0.])
+current_waypoint=0
+
 def handle_stick(msg,which):
-    global throttle,pitch,roll,yaw,pub
+    global throttle,pitch,roll,yaw
     if which==0:
         yaw=-msg.axes[0]
         throttle=0.5*(msg.axes[1]+1.0)
@@ -19,37 +37,86 @@ def handle_stick(msg,which):
         roll=-msg.axes[0]
         pitch=-msg.axes[1]
 
-    throttle_factor=400.
-    roll_factor=50.
-    pitch_factor=50.
-    yaw_factor=50.
-    motors=[0.,0.,0.,0.]
+def handle_odo(msg):
+    global pos,vel
+    vel[0]=msg.twist.twist.linear.x
+    vel[1]=msg.twist.twist.linear.y
+    vel[2]=-msg.twist.twist.linear.z
+    pos[0]=msg.pose.pose.position.x
+    pos[1]=msg.pose.pose.position.y
+    pos[2]=-msg.pose.pose.position.z
 
-    motors[0]=1.0*throttle*throttle_factor + -1.0*pitch*pitch_factor + -1.0*roll*roll_factor + -1.0*yaw*yaw_factor
-    motors[1]=1.0*throttle*throttle_factor + -1.0*pitch*pitch_factor + 1.0*roll*roll_factor + 1.0*yaw*yaw_factor
-    motors[2]=1.0*throttle*throttle_factor + 1.0*pitch*pitch_factor + 1.0*roll*roll_factor + -1.0*yaw*yaw_factor
-    motors[3]=1.0*throttle*throttle_factor + 1.0*pitch*pitch_factor + -1.0*roll*roll_factor + 1.0*yaw*yaw_factor
+def handle_imu(msg):
+    global PI_i,PI_kp,PI_ki,PI_lim,MIX,max_rpm,roll,pitch,yaw,throttle,vel,pub,OPI_i,OPI_kp,OPI_ki,OPI_lim,current_waypoint,pos
+    q=msg.orientation
+    (r,p,y) = tf.transformations.euler_from_quaternion([q.x,q.y,q.z,q.w])
+    r=-r # Gazebo coordinate system is oddly inverted
+    y=-y
 
-    pub[0].publish(motors[0])
-    pub[1].publish(motors[1])
-    pub[2].publish(motors[2])
-    pub[3].publish(motors[3])
+    waypoints=np.array([[0.,0.,-2.],[3.,0.,-2.],[3.,3.,-2.],[0.,3.,-2]])
+
+    if np.linalg.norm( waypoints[current_waypoint] - pos )<0.5:
+        current_waypoint = (current_waypoint + 1) % 4
+
+    VelKp = 2.0
+    VelMax = 2.0
+    VelS = np.clip( VelKp * ( waypoints[current_waypoint] - pos), -VelMax, VelMax)
+
+    x_max=2.0
+    y_max=-2.0
+    z_max=-2.0
+    hover_thrust=0.7
+
+    SetpointsO=np.array([x_max*roll,y_max*pitch,z_max*((2.0*throttle)-1)])
+    #Eo=SetpointsO-vel
+    Eo=VelS-vel
+    Po=Eo*OPI_kp
+    OPI_i=np.clip( OPI_i + Eo * OPI_ki, -OPI_lim, OPI_lim)
+    Oo = np.clip(Po+OPI_i,-1,1)
+
+    myroll=math.sin(y)*Oo[0]+math.cos(y)*Oo[1]
+    mypitch=math.cos(y)*Oo[0]-math.sin(y)*Oo[1]
 
 
+    Attitude_P=10.0
+    roll_max=40.0*math.pi/180.0
+    pitch_max=40.0*math.pi/180.0
+    yaw_max=180.0*math.pi/180.0
 
+    #Setpoints=np.array([Attitude_P*(roll*roll_max - r), Attitude_P*(pitch*pitch_max - p),yaw*yaw_max])
+    Setpoints=np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p),yaw*yaw_max])
 
+    Angular=np.array([-msg.angular_velocity.x,msg.angular_velocity.y,-msg.angular_velocity.z])
+
+    E=Setpoints-Angular
+    P=E*PI_kp
+    PI_i=np.clip( PI_i + E * PI_ki, -PI_lim, PI_lim)
+    #O=np.concatenate(( P + PI_i, (throttle,) ))
+    O=np.concatenate(( P + PI_i, (hover_thrust-Oo[2],) ))
+
+    motors=np.matmul(MIX,O)*max_rpm
+
+    pub[0].publish(float(motors[0]))
+    pub[1].publish(float(motors[1]))
+    pub[2].publish(float(motors[2]))
+    pub[3].publish(float(motors[3]))
 
 if __name__ == '__main__':
-    print("test")
     rospy.init_node('remote_controller')
+    pub.append(rospy.Publisher('motor0_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
+    pub.append(rospy.Publisher('motor1_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
+    pub.append(rospy.Publisher('motor2_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
+    pub.append(rospy.Publisher('motor3_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
     rospy.Subscriber('left_stick',
                      sensor_msgs.msg.Joy,
                      handle_stick,0)
     rospy.Subscriber('right_stick',
                      sensor_msgs.msg.Joy,
                      handle_stick,1)
-    pub.append(rospy.Publisher('motor0_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
-    pub.append(rospy.Publisher('motor1_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
-    pub.append(rospy.Publisher('motor2_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
-    pub.append(rospy.Publisher('motor3_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
+    rospy.Subscriber('sim_imu',
+                     sensor_msgs.msg.Imu,
+                     handle_imu)
+    rospy.Subscriber('position_groundtruth',
+                     nav_msgs.msg.Odometry,
+                     handle_odo)
     rospy.spin()

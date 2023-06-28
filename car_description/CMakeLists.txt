@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(rrbot_description)
+project(car_description)
 
 find_package(catkin REQUIRED)
 
@@ -15,8 +15,6 @@ install(DIRECTORY urdf
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
 
 install(PROGRAMS
-   nodes/publish_root_tf
-   nodes/remote_controller
-   nodes/fake_visual_detector
+   nodes/drive_car
    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
