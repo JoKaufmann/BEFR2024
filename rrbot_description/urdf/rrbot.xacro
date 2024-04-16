@@ -223,7 +223,7 @@
             </joint>
             <actuator name="${name}">
                 <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
-                <mechanicalReduction>1</mechanicalReduction>
+                <mechanicalReduction>0</mechanicalReduction>
             </actuator>
             </transmission>
         <xacro:cylinder_base_link name="${name}_axle" m="0.05" r="0.003" l="0.019" mat="Orange" />
@@ -298,7 +298,7 @@
     </xacro:box_base_link>
     <joint name="FC_joint" type="fixed">
         <parent link="dummyroot"/>
-        <origin xyz="0 0 0.01" rpy="0 0 0"/>
+	<origin xyz="0 0 0.01" rpy="0 0 0"/>
         <child link="FC"/>
     </joint>
 

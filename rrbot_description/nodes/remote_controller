@@ -17,7 +17,7 @@ PI_i=np.zeros(3)
 PI_kp=np.array([0.3,0.3,0.8])
 PI_ki=np.array([0.05,0.05,0.3])
 PI_lim=np.array([0.,0.,0.3])
-MIX=np.array([[-1,-1,-1,1],[1,-1,1,1],[1,1,-1,1],[-1,1,1,1]],dtype=float)
+MIX=np.array([[-1,1,-1,1],[-1,-1,1,1],[1,-1,-1,1],[1,1,1,1]],dtype=float)
 max_rpm=400
 
 def handle_stick(msg,which):
@@ -30,26 +30,26 @@ def handle_stick(msg,which):
         pitch=-msg.axes[1]
 
 def handle_imu(msg):
+    # simple cascaded PI controller
     global PI_i,PI_kp,PI_ki,PI_lim,MIX,max_rpm,roll,pitch,yaw,throttle,pub
     q=msg.orientation
-    (r,p,y) = tf.transformations.euler_from_quaternion([q.x,q.y,q.z,q.w])
-    r=-r # Gazebo coordinate system is oddly inverted
-    y=-y
+    (r,p,y) = tf.transformations.euler_from_quaternion([q.y,q.x,-q.z,q.w]) # convert from ENU to NED
+    Angular=np.array([msg.angular_velocity.y,msg.angular_velocity.x,-msg.angular_velocity.z]) # convert from ENU to NED
 
-    Attitude_P=10.0
+    Attitude_P=10.0 # proportional factor
     roll_max=10.0*math.pi/180.0
     pitch_max=10.0*math.pi/180.0
     yaw_max=180.0*math.pi/180.0
 
     Setpoints=np.array([Attitude_P*(roll*roll_max - r), Attitude_P*(pitch*pitch_max - p),yaw*yaw_max])
-    Angular=np.array([-msg.angular_velocity.x,msg.angular_velocity.y,-msg.angular_velocity.z])
 
+    #PI loop
     E=Setpoints-Angular
     P=E*PI_kp
     PI_i=np.clip( PI_i + E * PI_ki, -PI_lim, PI_lim)
     O=np.concatenate(( P + PI_i, (throttle,) ))
 
-    motors=np.matmul(MIX,O)*max_rpm
+    motors=np.clip(np.matmul(MIX,O)*max_rpm,0,max_rpm)
 
     pub[0].publish(float(motors[0]))
     pub[1].publish(float(motors[1]))
