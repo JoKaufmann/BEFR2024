@@ -11,8 +11,8 @@ Example robots and code for interfacing Gazebo with ROS -- multicopter edition
 * ROS Noetic: (http://wiki.ros.org/noetic/Installation/Ubuntu) - use ros-noetic-desktop-full
 * Additional ROS packages:
 
-      apt-get install ros-noetic-controller-interface ros-noetic-controller-manager ros-noetic-controller-manager-msgs ros-noetic-control-toolbox ros-noetic-cv-camera ros-noetic-desktop-full ros-noetic-diff-drive-controller ros-noetic-effort-controllers ros-noetic-forward-command-controller ros-noetic-joint-limits-interface ros-noetic-joint-state-controller ros-noetic-marker-msgs ros-noetic-mrpt2 ros-noetic-mrpt-msgs ros-noetic-octomap-msgs ros-noetic-octomap-ros ros-noetic-perception ros-noetic-position-controllers ros-noetic-stage ros-noetic-stage-ros ros-noetic-transmission-interface ros-noetic-hector-gazebo-plugins
-
+      apt-get install ros-noetic-controller-interface ros-noetic-controller-manager ros-noetic-controller-manager-msgs ros-noetic-control-toolbox ros-noetic-cv-camera ros-noetic-desktop-full ros-noetic-diff-drive-controller ros-noetic-effort-controllers ros-noetic-forward-command-controller ros-noetic-joint-limits-interface ros-noetic-joint-state-controller ros-noetic-marker-msgs ros-noetic-mrpt2 ros-noetic-mrpt-msgs ros-noetic-octomap-msgs ros-noetic-octomap-ros ros-noetic-perception ros-noetic-position-controllers ros-noetic-stage ros-noetic-stage-ros ros-noetic-transmission-interface ros-noetic-hector-gazebo-plugins ros-noetic-tf-conversions ros-noetic-hector-sensors-gazebo
+* Some python modules: `pip install pynput`
 * Make a catkin workspace and put this repository in the src subfolder (http://wiki.ros.org/catkin/Tutorials/create_a_workspace)
 * download submodules with ```git submodule update --init --recursive```
 * Run "catkin_make" in the catkin workspace to compile all packages.
