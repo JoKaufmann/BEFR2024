@@ -3,27 +3,30 @@ import rospy
 
 import sensor_msgs.msg
 import geometry_msgs.msg
+import nav_msgs.msg
 import std_msgs.msg
 import numpy as np
 import tf
 import math
 
 
-g=    np.array((0.,0.,-9.8066))
-Be=   np.array((2.3e-05,6e-06,4.2e-05))
-Be=   Be*1./np.linalg.norm(Be) # normalize to vector 1 - since the simulated magnetometer is weirdly scaled
-GPS=  [48.75,9.105,0]
-#               px py pz vx vy vz qw qx qy qz bx by bz bh
+g=    np.array((0.,0.,-9.8066)) # Gravity from Gazebo world file
+Be=   np.array((2.3e-05,6e-06,4.2e-05)) # Be from Gazebo world file - ATTENTION: Non-intuitive, x and y from world file are NOT swapped, only z is. 
+                                        # Possibly bug in Gazebo.
+Be=   Be*1./np.linalg.norm(Be) # normalize to unit vector - since the simulated magnetometer scales weirdly
+
+GPS=  [48.75,9.105,0]          # GPS reference coordinate from rrbot.xacro
+# State vector: px py pz vx vy vz qw qx qy qz bx by bz bh
 mu=   np.array((0.,0.,0.,0.,0.,0.,1.,0.,0.,0.,0.,0.,0.,0.))
-Sigma=np.identity(14)
-Dt=   0.01
-R0=   np.array((0.,0.,0.,.1,.1,.1,.1,.1,.1,.1,.01,.01,.01,.01))
+Sigma=np.identity(14) # simplest possible uncertainty initialisation
+Dt=   0.01            # Gazebo IMU update rate
+R0=   np.array((0.,0.,0.,.1,.1,.1,.1,.1,.1,.1,.01,.01,.01,.01)) # crude process noise approximation
 R=    np.diag((R0*Dt)**2)
-#Q=    np.diag(np.array((1.,1.,1.,.1,.1,.1,.1,.1,.1,1))**2)
+#Q=    np.diag(np.array((1.,1.,1.,.1,.1,.1,.1,.1,.1,1))**2) # Q is given in the individual sensor handlers, since only a subset is used in each case
 
-pub=[]
+pub={}
 
-def Rot(q):
+def Rot(q): # R from Notation
     xx=q[1]*q[1]
     xy=q[1]*q[2]
     xz=q[1]*q[3]
@@ -39,9 +42,31 @@ def Rot(q):
         (  2*(xz-yw),  2*(yz+xw),1-2*(xx+yy))
         ))
 
-def handle_imu(msg):
-    # simple cascaded PI controller
-    global pub,g,Be,mu,Sigma,R0,Dt
+def V3(a):
+    return geometry_msgs.msg.Vector3(a[0],a[1],a[2])
+
+def P3(a):
+    return geometry_msgs.msg.Point(a[0],a[1],a[2])
+
+def Q4(q):
+    return geometry_msgs.msg.Quaternion(q[1],q[2],q[3],q[0])
+
+def quat2Euler(q): # not needed - you can use tf.transformations.euler_from_quaternion
+    ww=q[0]*q[0]
+    xx=q[1]*q[1]
+    yy=q[2]*q[2]
+    zz=q[3]*q[3]
+
+    r13=2.*(q[1]*q[3]-q[0]*q[2])
+    r11=ww+xx-yy-zz
+    r12=2.*(q[1]*q[2]+q[0]*q[3])
+    r23=2.*(q[2]*q[3]+q[0]*q[1])
+    r33=ww-xx-yy+zz
+    rpy=np.array((math.atan2(r23,r33),math.asin(-r13),math.atan2(r12,r11)))
+    return 180.*rpy/math.pi
+
+def handle_imu(msg): 
+    global mu,Sigma
     omega_t=np.array([msg.angular_velocity.y,msg.angular_velocity.x,-msg.angular_velocity.z]) # convert from ENU to NED
     a_t=np.array([msg.linear_acceleration.y,msg.linear_acceleration.x,-msg.linear_acceleration.z]) # convert from ENU to NED
 
@@ -107,6 +132,30 @@ def handle_imu(msg):
 
     Sigma = np.matmul(np.matmul(G,Sigma),G.transpose()) + R #alg2 line 5
 
+    #export
+    nmsg=nav_msgs.msg.Odometry()
+    nmsg.header=msg.header
+    nmsg.header.frame_id="NED"
+    nmsg.child_frame_id="NED"
+    gyro_ned=np.matmul(Rot(q1),omega_t)
+    nmsg.twist.twist.angular=V3(gyro_ned)
+    nmsg.twist.twist.linear=V3(v1)
+    nmsg.pose.pose.position=P3(p1)
+    nmsg.pose.pose.orientation=Q4(q1)
+    PQ=np.concatenate((np.concatenate((Sigma[0:3,0:3],Sigma[0:3,7:10])),np.concatenate((Sigma[7:10,0:3],Sigma[7:10,7:10]))),axis=1)
+    nmsg.pose.covariance=list(PQ.flatten())
+    VG=np.concatenate((np.concatenate((Sigma[3:6,3:6],Sigma[3:6,10:13])),np.concatenate((Sigma[10:13,3:6],Sigma[10:13,10:13]))),axis=1)
+    nmsg.twist.covariance=list(VG.flatten())
+    pub["state_estimate"].publish(nmsg)
+    nmsg=V3(180.*np.array(tf.transformations.euler_from_quaternion([q1[1],q1[2],q1[3],q1[0]]))/math.pi)
+    pub["euler_angle"].publish(nmsg)
+    nmsg=V3(quat2Euler(q1))
+    pub["euler_angle_debug"].publish(nmsg)
+    nmsg=V3(bg1)
+    pub["gyro_bias"].publish(nmsg)
+    nmsg=V3([0.,0.,bh1])
+    pub["height_bias"].publish(nmsg)
+
 def update(H,zt,zh,Q):
     global Sigma,mu
     zq= np.linalg.inv(np.matmul(np.matmul(H,Sigma),H.transpose()) + Q)
@@ -116,7 +165,6 @@ def update(H,zt,zh,Q):
     Sigma = np.matmul( np.identity(14) - np.matmul(K,H) , Sigma )
 
 def handle_baro(msg):
-    global mu
     H=np.zeros((1,14))
     H[0,2]=-1.
     H[0,13]=-1.
@@ -126,12 +174,11 @@ def handle_baro(msg):
     update(H,zt,zh,Q)
 
 def handle_gps(msg):
-    global mu,GPS
     lat=msg.latitude-GPS[0]
     lon=msg.longitude-GPS[1]
     alt=msg.altitude-GPS[2]
-    latfac=40007863./360.
-    lonfac=math.cos(GPS[1]*math.pi/180.)*40075017./360.
+    latfac=40007863./360. # polar earth circumference divided by 360 deg (latitude is in degrees)
+    lonfac=math.cos(GPS[0]*math.pi/180.)*40075017./360. #equatorial earth circumference scaled by latitude and divided by 360 deg
     H=np.zeros((3,14))
     H[0:3,0:3]=np.identity(3)
     zt=np.array([lat*latfac,lon*lonfac,-alt])# convert from lat+long to NED
@@ -139,8 +186,10 @@ def handle_gps(msg):
     Q=np.identity(3)
     update(H,zt,zh,Q)
 
+    nmsg=P3(zt)
+    pub["gps_pos_debug"].publish(nmsg)
+
 def handle_vel(msg):
-    global mu
     H=np.zeros((3,14))
     H[0:3,3:6]=np.identity(3)
     zt=np.array([msg.vector.y,msg.vector.x,-msg.vector.z])# convert from ENU to NED
@@ -148,9 +197,11 @@ def handle_vel(msg):
     Q=np.identity(3)*0.01
     update(H,zt,zh,Q)
 
+    nmsg=V3(zt)
+    pub["gps_vel_debug"].publish(nmsg)
+
 
 def handle_mag(msg):
-    global mu,Be
     mag=np.array([msg.vector.y,msg.vector.x,-msg.vector.z])# convert from ENU to NED
     q=mu[6:10]
     xx_=Be[0]*q[1]
@@ -169,8 +220,8 @@ def handle_mag(msg):
     H[0:3,6:10]=2.*np.array((
         ( yz_-zy_,yy_+zz_    ,-xy_+yx_-zw_,-xz_+yw_+zx_),
         (-xz_+zx_,xy_-yx_+zw_, xx_+zz_    ,-xw_-yz_+zy_),
-        ( xy_-yx_,xz_-yw_-zx_, xw_+yz_-zy_,xx+yy       )
-        ))
+        ( xy_-yx_,xz_-yw_-zx_, xw_+yz_-zy_, xx_+yy_    )
+        )) # eq 22
     zt=mag/np.linalg.norm(mag) # normalize
     zh=np.matmul(Rot(mu[6:10]).transpose(),Be.transpose())
     Q=np.identity(3)*0.01
@@ -178,6 +229,13 @@ def handle_mag(msg):
 
 if __name__ == '__main__':
     rospy.init_node('ekf')
+    pub["state_estimate"]=   rospy.Publisher('state_estimate',nav_msgs.msg.Odometry, queue_size=3)
+    pub["euler_angle"]=      rospy.Publisher('euler_angle',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["euler_angle_debug"]=rospy.Publisher('euler_angle_debug',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["gps_pos_debug"]=    rospy.Publisher('gps_pos_debug',geometry_msgs.msg.Point, queue_size=3)
+    pub["gps_vel_debug"]=    rospy.Publisher('gps_vel_debug',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["gyro_bias"]=        rospy.Publisher('gyro_bias',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["height_bias"]=      rospy.Publisher('height_bias',geometry_msgs.msg.Vector3, queue_size=3)
     rospy.Subscriber('sim_imu',
                      sensor_msgs.msg.Imu,
                      handle_imu)
@@ -190,7 +248,7 @@ if __name__ == '__main__':
     rospy.Subscriber('sim_gps_vel',
                      geometry_msgs.msg.Vector3Stamped,
                      handle_vel)
-    rospy.Subscriber('sim_sim_magnetometer',
+    rospy.Subscriber('sim_magnetometer',
                      geometry_msgs.msg.Vector3Stamped,
                      handle_mag)
 
