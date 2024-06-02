@@ -11,7 +11,7 @@ import math
 
 
 g=    np.array((0.,0.,-9.8066)) # Gravity from Gazebo world file
-Be=   np.array((2.3e-05,6e-06,4.2e-05)) # Be from Gazebo world file - ATTENTION: Non-intuitive, x and y from world file are NOT swapped, only z is. 
+Be=   np.array((6e-06,2.3e-05,4.2e-05)) # Be from Gazebo world file - ATTENTION: Non-intuitive, x and y from world file are NOT swapped, only z is. 
                                         # Possibly bug in Gazebo.
 Be=   Be*1./np.linalg.norm(Be) # normalize to unit vector - since the simulated magnetometer scales weirdly
 
@@ -77,14 +77,14 @@ def handle_imu(msg):
     bh1=mu[13] # eq 1
     omega_hat=(omega_t-bg1) #eq 3
     omega_s=np.linalg.norm(omega_t)
-    on=omega_hat* 1/omega_s
-    s_=math.sin(omega_s*Dt/2)
-    c_=math.cos(omega_s*Dt/2)
+    on=omega_hat* 1./omega_s
+    s_=math.sin(omega_s*Dt*0.5)
+    c_=math.cos(omega_s*Dt*0.5)
     q1=np.matmul(np.array((
         ( c_,      -s_*on[0],-s_*on[1],-s_*on[2]),
         ( s_*on[0], c_,       s_*on[2],-s_*on[1]),
-        ( s_*on[1],-s_*on[0], c_      , s_*on[2]),
-        ( s_*on[2], s_*on[1],-s_*on[1], c_      ))),q0) #eq 5
+        ( s_*on[1],-s_*on[2], c_      , s_*on[0]),
+        ( s_*on[2], s_*on[1],-s_*on[0], c_      ))),q0) #eq 5
     q1=q1/np.linalg.norm(q1) #alg2 line 3
     v1=v0 + Dt*(np.matmul(Rot(q0),a_t) - g) # eq 6
     p1=p0 + Dt*0.5*(v0+v1) #eq 7
@@ -224,6 +224,7 @@ def handle_mag(msg):
         )) # eq 22
     zt=mag/np.linalg.norm(mag) # normalize
     zh=np.matmul(Rot(mu[6:10]).transpose(),Be.transpose())
+    #print("Measured:",zt,"Estimated",zh)
     Q=np.identity(3)*0.01
     update(H,zt,zh,Q)
 
