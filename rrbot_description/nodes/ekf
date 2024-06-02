@@ -1,0 +1,197 @@
+#!/usr/bin/env python
+import rospy
+
+import sensor_msgs.msg
+import geometry_msgs.msg
+import std_msgs.msg
+import numpy as np
+import tf
+import math
+
+
+g=    np.array((0.,0.,-9.8066))
+Be=   np.array((2.3e-05,6e-06,4.2e-05))
+Be=   Be*1./np.linalg.norm(Be) # normalize to vector 1 - since the simulated magnetometer is weirdly scaled
+GPS=  [48.75,9.105,0]
+#               px py pz vx vy vz qw qx qy qz bx by bz bh
+mu=   np.array((0.,0.,0.,0.,0.,0.,1.,0.,0.,0.,0.,0.,0.,0.))
+Sigma=np.identity(14)
+Dt=   0.01
+R0=   np.array((0.,0.,0.,.1,.1,.1,.1,.1,.1,.1,.01,.01,.01,.01))
+R=    np.diag((R0*Dt)**2)
+#Q=    np.diag(np.array((1.,1.,1.,.1,.1,.1,.1,.1,.1,1))**2)
+
+pub=[]
+
+def Rot(q):
+    xx=q[1]*q[1]
+    xy=q[1]*q[2]
+    xz=q[1]*q[3]
+    xw=q[1]*q[0]
+    yy=q[2]*q[2]
+    yz=q[2]*q[3]
+    yw=q[2]*q[0]
+    zz=q[3]*q[3]
+    zw=q[3]*q[0]
+    return np.array((
+        (1-2*(yy+zz),  2*(xy-zw),  2*(xz+yw)),
+        (  2*(xy+zw),1-2*(xx+zz),  2*(yz-xw)),
+        (  2*(xz-yw),  2*(yz+xw),1-2*(xx+yy))
+        ))
+
+def handle_imu(msg):
+    # simple cascaded PI controller
+    global pub,g,Be,mu,Sigma,R0,Dt
+    omega_t=np.array([msg.angular_velocity.y,msg.angular_velocity.x,-msg.angular_velocity.z]) # convert from ENU to NED
+    a_t=np.array([msg.linear_acceleration.y,msg.linear_acceleration.x,-msg.linear_acceleration.z]) # convert from ENU to NED
+
+    p0=mu[0:3]
+    v0=mu[3:6]
+    q0=mu[6:10]
+    bg1=mu[10:13] # eq 2
+    bh1=mu[13] # eq 1
+    omega_hat=(omega_t-bg1) #eq 3
+    omega_s=np.linalg.norm(omega_t)
+    on=omega_hat* 1/omega_s
+    s_=math.sin(omega_s*Dt/2)
+    c_=math.cos(omega_s*Dt/2)
+    q1=np.matmul(np.array((
+        ( c_,      -s_*on[0],-s_*on[1],-s_*on[2]),
+        ( s_*on[0], c_,       s_*on[2],-s_*on[1]),
+        ( s_*on[1],-s_*on[0], c_      , s_*on[2]),
+        ( s_*on[2], s_*on[1],-s_*on[1], c_      ))),q0) #eq 5
+    q1=q1/np.linalg.norm(q1) #alg2 line 3
+    v1=v0 + Dt*(np.matmul(Rot(q0),a_t) - g) # eq 6
+    p1=p0 + Dt*0.5*(v0+v1) #eq 7
+    mu=np.concatenate((p1,v1,q1,bg1,np.atleast_1d(bh1))) #alg2 line 2 
+
+    dqdq_ = np.identity(4) + 0.5 * Dt * np.array((
+        ( 0,           -omega_hat[0],-omega_hat[1],-omega_hat[2]),
+        ( omega_hat[0], 0,            omega_hat[2],-omega_hat[1]),
+        ( omega_hat[1],-omega_hat[2], 0,            omega_hat[0]),
+        ( omega_hat[2], omega_hat[1],-omega_hat[0], 0)
+        )) # eq 13
+    dqdb_ = 0.5 * Dt * np.array((
+        ( q0[1], q0[2], q0[3]),
+        (-q0[0], q0[3],-q0[2]),
+        (-q0[3],-q0[0], q0[1]),
+        ( q0[2],-q0[1],-q0[0])
+        )) # eq 14
+    xx_ = a_t[0]*q0[1]
+    xy_ = a_t[0]*q0[2]
+    xz_ = a_t[0]*q0[3]
+    xw_ = a_t[0]*q0[0]
+    yx_ = a_t[1]*q0[1]
+    yy_ = a_t[1]*q0[2]
+    yz_ = a_t[1]*q0[3]
+    yw_ = a_t[1]*q0[0]
+    zx_ = a_t[2]*q0[1]
+    zy_ = a_t[2]*q0[2]
+    zz_ = a_t[2]*q0[3]
+    zw_ = a_t[2]*q0[0]
+    dvdq_ = 2 * Dt * np.array((
+        (-yz_+zy_    ,yy_+zz_    ,-xy_+yx_+zw_,-xz_-yw_+zx_),
+        ( xz_-zx_    ,xy_-yx_-zw_, xx_+zz_    , xw_-yz_+zy_),
+        (-xy_+yx_    ,xz_+yw_-zx_,-xw_+yz_-zy_,xx_+yy_)
+        )) # eq 15
+
+    G=np.zeros((14,14))
+    G[0:3,0:3]     = np.identity(3)
+    G[0:3,3:6]     = Dt*np.identity(3)
+    G[3:6,3:6]     = np.identity(3)
+    G[3:6,6:10]    = dvdq_
+    G[6:10,6:10]   = dqdq_
+    G[6:10,10:13]  = dqdb_
+    G[10:13,10:13] = np.identity(3)
+    G[13,13]       = 1.0 # eq 8
+
+    Sigma = np.matmul(np.matmul(G,Sigma),G.transpose()) + R #alg2 line 5
+
+def update(H,zt,zh,Q):
+    global Sigma,mu
+    zq= np.linalg.inv(np.matmul(np.matmul(H,Sigma),H.transpose()) + Q)
+    K = np.matmul(np.matmul(Sigma,H.transpose()),zq) #alg2 line 7
+    mu = mu + np.matmul(K,(zt-zh)) #alg2 line 8
+    mu[6:10]=mu[6:10]/np.linalg.norm(mu[6:10])#alg2 line 9
+    Sigma = np.matmul( np.identity(14) - np.matmul(K,H) , Sigma )
+
+def handle_baro(msg):
+    global mu
+    H=np.zeros((1,14))
+    H[0,2]=-1.
+    H[0,13]=-1.
+    zt=np.array([msg.point.z])
+    zh=np.atleast_1d(-mu[2]-mu[13])
+    Q=np.array([[1.]])
+    update(H,zt,zh,Q)
+
+def handle_gps(msg):
+    global mu,GPS
+    lat=msg.latitude-GPS[0]
+    lon=msg.longitude-GPS[1]
+    alt=msg.altitude-GPS[2]
+    latfac=40007863./360.
+    lonfac=math.cos(GPS[1]*math.pi/180.)*40075017./360.
+    H=np.zeros((3,14))
+    H[0:3,0:3]=np.identity(3)
+    zt=np.array([lat*latfac,lon*lonfac,-alt])# convert from lat+long to NED
+    zh=mu[0:3]
+    Q=np.identity(3)
+    update(H,zt,zh,Q)
+
+def handle_vel(msg):
+    global mu
+    H=np.zeros((3,14))
+    H[0:3,3:6]=np.identity(3)
+    zt=np.array([msg.vector.y,msg.vector.x,-msg.vector.z])# convert from ENU to NED
+    zh=mu[3:6]
+    Q=np.identity(3)*0.01
+    update(H,zt,zh,Q)
+
+
+def handle_mag(msg):
+    global mu,Be
+    mag=np.array([msg.vector.y,msg.vector.x,-msg.vector.z])# convert from ENU to NED
+    q=mu[6:10]
+    xx_=Be[0]*q[1]
+    xy_=Be[0]*q[2]
+    xz_=Be[0]*q[3]
+    xw_=Be[0]*q[0]
+    yx_=Be[1]*q[1]
+    yy_=Be[1]*q[2]
+    yz_=Be[1]*q[3]
+    yw_=Be[1]*q[0]
+    zx_=Be[2]*q[1]
+    zy_=Be[2]*q[2]
+    zz_=Be[2]*q[3]
+    zw_=Be[2]*q[0]
+    H=np.zeros((3,14))
+    H[0:3,6:10]=2.*np.array((
+        ( yz_-zy_,yy_+zz_    ,-xy_+yx_-zw_,-xz_+yw_+zx_),
+        (-xz_+zx_,xy_-yx_+zw_, xx_+zz_    ,-xw_-yz_+zy_),
+        ( xy_-yx_,xz_-yw_-zx_, xw_+yz_-zy_,xx+yy       )
+        ))
+    zt=mag/np.linalg.norm(mag) # normalize
+    zh=np.matmul(Rot(mu[6:10]).transpose(),Be.transpose())
+    Q=np.identity(3)*0.01
+    update(H,zt,zh,Q)
+
+if __name__ == '__main__':
+    rospy.init_node('ekf')
+    rospy.Subscriber('sim_imu',
+                     sensor_msgs.msg.Imu,
+                     handle_imu)
+    rospy.Subscriber('sim_barometer',
+                     geometry_msgs.msg.PointStamped,
+                     handle_baro)
+    rospy.Subscriber('sim_gps_fix',
+                     sensor_msgs.msg.NavSatFix,
+                     handle_gps)
+    rospy.Subscriber('sim_gps_vel',
+                     geometry_msgs.msg.Vector3Stamped,
+                     handle_vel)
+    rospy.Subscriber('sim_sim_magnetometer',
+                     geometry_msgs.msg.Vector3Stamped,
+                     handle_mag)
+
+    rospy.spin()
