@@ -18,9 +18,11 @@ Be=   Be*1./np.linalg.norm(Be) # normalize to unit vector - since the simulated 
 GPS=  [48.75,9.105,0]          # GPS reference coordinate from rrbot.xacro
 # State vector: px py pz vx vy vz qw qx qy qz bx by bz bh
 mu=   np.array((0.,0.,0.,0.,0.,0.,1.,0.,0.,0.,0.,0.,0.,0.))
-Sigma=np.identity(14) # simplest possible uncertainty initialisation
+Sigma=np.diag(
+      np.array((1.,1.,1.,1.,1.,1.,0.1,0.1,0.1,0.1,1.,1.,1.,1.)) #uncertainty initialisation
+      )
 Dt=   0.01            # Gazebo IMU update rate
-R0=   np.array((0.,0.,0.,.1,.1,.1,.1,.1,.1,.1,.01,.01,.01,.01)) # crude process noise approximation
+R0=   np.array((.01,.01,.01,.1,.1,.1,.1,.1,.1,.1,.01,.01,.01,.01)) # crude process noise approximation
 R=    np.diag((R0*Dt)**2)
 #Q=    np.diag(np.array((1.,1.,1.,.1,.1,.1,.1,.1,.1,1))**2) # Q is given in the individual sensor handlers, since only a subset is used in each case
 
@@ -78,6 +80,13 @@ def handle_imu(msg):
     omega_hat=(omega_t-bg1) #eq 3
     omega_s=np.linalg.norm(omega_t)
     on=omega_hat* 1./omega_s
+    s_=math.sin(omega_s*Dt*0.25)
+    c_=math.cos(omega_s*Dt*0.25)
+    q05=np.matmul(np.array((
+        ( c_,      -s_*on[0],-s_*on[1],-s_*on[2]),
+        ( s_*on[0], c_,       s_*on[2],-s_*on[1]),
+        ( s_*on[1],-s_*on[2], c_      , s_*on[0]),
+        ( s_*on[2], s_*on[1],-s_*on[0], c_      ))),q0) #eq 5
     s_=math.sin(omega_s*Dt*0.5)
     c_=math.cos(omega_s*Dt*0.5)
     q1=np.matmul(np.array((
@@ -86,7 +95,7 @@ def handle_imu(msg):
         ( s_*on[1],-s_*on[2], c_      , s_*on[0]),
         ( s_*on[2], s_*on[1],-s_*on[0], c_      ))),q0) #eq 5
     q1=q1/np.linalg.norm(q1) #alg2 line 3
-    v1=v0 + Dt*(np.matmul(Rot(q0),a_t) - g) # eq 6
+    v1=v0 + Dt*(np.matmul(Rot(q05),a_t) - g) # eq 6
     p1=p0 + Dt*0.5*(v0+v1) #eq 7
     mu=np.concatenate((p1,v1,q1,bg1,np.atleast_1d(bh1))) #alg2 line 2 
 
@@ -173,7 +182,17 @@ def handle_baro(msg):
     Q=np.array([[1.]])
     update(H,zt,zh,Q)
 
-def handle_gps(msg):
+def handle_gt(msg):
+    H=np.zeros((3,14))
+    H[0:3,0:3]=np.identity(3)
+    zt=np.array([msg.pose.pose.position.y,msg.pose.pose.position.x,-msg.pose.pose.position.z])# convert from lat+long to NED
+    zh=mu[0:3]
+    Q=np.identity(3)*10000
+    update(H,zt,zh,Q)
+
+def handle_gps_pos(msg):
+    return
+    H=np.zeros((3,14))
     lat=msg.latitude-GPS[0]
     lon=msg.longitude-GPS[1]
     alt=msg.altitude-GPS[2]
@@ -183,13 +202,13 @@ def handle_gps(msg):
     H[0:3,0:3]=np.identity(3)
     zt=np.array([lat*latfac,lon*lonfac,-alt])# convert from lat+long to NED
     zh=mu[0:3]
-    Q=np.identity(3)
+    Q=np.identity(3)*1
     update(H,zt,zh,Q)
 
     nmsg=P3(zt)
     pub["gps_pos_debug"].publish(nmsg)
 
-def handle_vel(msg):
+def handle_gps_vel(msg):
     H=np.zeros((3,14))
     H[0:3,3:6]=np.identity(3)
     zt=np.array([msg.vector.y,msg.vector.x,-msg.vector.z])# convert from ENU to NED
@@ -237,7 +256,8 @@ if __name__ == '__main__':
     pub["gps_vel_debug"]=    rospy.Publisher('gps_vel_debug',geometry_msgs.msg.Vector3, queue_size=3)
     pub["gyro_bias"]=        rospy.Publisher('gyro_bias',geometry_msgs.msg.Vector3, queue_size=3)
     pub["height_bias"]=      rospy.Publisher('height_bias',geometry_msgs.msg.Vector3, queue_size=3)
-    rospy.Subscriber('sim_imu',
+    #rospy.Subscriber('sim_imu',
+    rospy.Subscriber('imu_groundtruth',
                      sensor_msgs.msg.Imu,
                      handle_imu)
     rospy.Subscriber('sim_barometer',
@@ -245,10 +265,13 @@ if __name__ == '__main__':
                      handle_baro)
     rospy.Subscriber('sim_gps_fix',
                      sensor_msgs.msg.NavSatFix,
-                     handle_gps)
+                     handle_gps_pos)
     rospy.Subscriber('sim_gps_vel',
                      geometry_msgs.msg.Vector3Stamped,
-                     handle_vel)
+                     handle_gps_vel)
+    rospy.Subscriber('position_groundtruth',
+                     nav_msgs.msg.Odometry,
+                     handle_gt)
     rospy.Subscriber('sim_magnetometer',
                      geometry_msgs.msg.Vector3Stamped,
                      handle_mag)
