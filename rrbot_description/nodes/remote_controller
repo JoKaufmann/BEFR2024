@@ -88,7 +88,7 @@ def handle_imu(msg):
         OPI_i=np.clip( OPI_i + Eo * OPI_ki, -OPI_lim, OPI_lim)
         Oo = np.clip(Po+OPI_i,-1,1)
 
-        mypitch=-math.cos(y)*Oo[0]-math.sin(y)*Oo[0]
+        mypitch=-math.cos(y)*Oo[0]-math.sin(y)*Oo[1]
         myroll=-math.sin(y)*Oo[0]+math.cos(y)*Oo[1]
         Setpoints=np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p),yaw*yaw_max])
         mythrottle=hover_thrust-Oo[2]
