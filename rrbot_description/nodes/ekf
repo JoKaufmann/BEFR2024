@@ -183,6 +183,8 @@ def handle_baro(msg):
     update(H,zt,zh,Q)
 
 def handle_gt(msg):
+    return
+    # not used right now - just for testing
     H=np.zeros((3,14))
     H[0:3,0:3]=np.identity(3)
     zt=np.array([msg.pose.pose.position.y,msg.pose.pose.position.x,-msg.pose.pose.position.z])# convert from lat+long to NED
@@ -191,7 +193,6 @@ def handle_gt(msg):
     update(H,zt,zh,Q)
 
 def handle_gps_pos(msg):
-    return
     H=np.zeros((3,14))
     lat=msg.latitude-GPS[0]
     lon=msg.longitude-GPS[1]
@@ -200,9 +201,9 @@ def handle_gps_pos(msg):
     lonfac=math.cos(GPS[0]*math.pi/180.)*40075017./360. #equatorial earth circumference scaled by latitude and divided by 360 deg
     H=np.zeros((3,14))
     H[0:3,0:3]=np.identity(3)
-    zt=np.array([lat*latfac,lon*lonfac,-alt])# convert from lat+long to NED
+    zt=np.array([-lon*lonfac,lat*latfac,-alt])# convert from lat+long to NED WARNING: Axis swapped between ROS kinetic and noetic - this is for noetic
     zh=mu[0:3]
-    Q=np.identity(3)*1
+    Q=np.identity(3)*100
     update(H,zt,zh,Q)
 
     nmsg=P3(zt)
@@ -256,8 +257,8 @@ if __name__ == '__main__':
     pub["gps_vel_debug"]=    rospy.Publisher('gps_vel_debug',geometry_msgs.msg.Vector3, queue_size=3)
     pub["gyro_bias"]=        rospy.Publisher('gyro_bias',geometry_msgs.msg.Vector3, queue_size=3)
     pub["height_bias"]=      rospy.Publisher('height_bias',geometry_msgs.msg.Vector3, queue_size=3)
-    #rospy.Subscriber('sim_imu',
-    rospy.Subscriber('imu_groundtruth',
+    #rospy.Subscriber('imu_groundtruth',
+    rospy.Subscriber('sim_imu',
                      sensor_msgs.msg.Imu,
                      handle_imu)
     rospy.Subscriber('sim_barometer',
