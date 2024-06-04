@@ -80,13 +80,6 @@ def handle_imu(msg):
     omega_hat=(omega_t-bg1) #eq 3
     omega_s=np.linalg.norm(omega_t)
     on=omega_hat* 1./omega_s
-    s_=math.sin(omega_s*Dt*0.25)
-    c_=math.cos(omega_s*Dt*0.25)
-    q05=np.matmul(np.array((
-        ( c_,      -s_*on[0],-s_*on[1],-s_*on[2]),
-        ( s_*on[0], c_,       s_*on[2],-s_*on[1]),
-        ( s_*on[1],-s_*on[2], c_      , s_*on[0]),
-        ( s_*on[2], s_*on[1],-s_*on[0], c_      ))),q0) #eq 5
     s_=math.sin(omega_s*Dt*0.5)
     c_=math.cos(omega_s*Dt*0.5)
     q1=np.matmul(np.array((
@@ -95,8 +88,8 @@ def handle_imu(msg):
         ( s_*on[1],-s_*on[2], c_      , s_*on[0]),
         ( s_*on[2], s_*on[1],-s_*on[0], c_      ))),q0) #eq 5
     q1=q1/np.linalg.norm(q1) #alg2 line 3
-    v1=v0 + Dt*(np.matmul(Rot(q05),a_t) - g) # eq 6
-    p1=p0 + Dt*0.5*(v0+v1) #eq 7
+    v1=v0 + Dt*(np.matmul(Rot(q0),a_t) - g) # eq 6
+    p1=p0 + Dt*v0 #eq 7
     mu=np.concatenate((p1,v1,q1,bg1,np.atleast_1d(bh1))) #alg2 line 2 
 
     dqdq_ = np.identity(4) + 0.5 * Dt * np.array((
