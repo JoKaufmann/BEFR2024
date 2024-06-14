@@ -1,3 +1,6 @@
 [submodule "rqt_virtual_joystick"]
 	path = rqt_virtual_joystick
 	url = https://github.com/robot-perception-group/rqt_virtual_joystick.git
+[submodule "hector_quadrotor"]
+	path = hector_quadrotor
+	url = https://github.com/tu-darmstadt-ros-pkg/hector_quadrotor.git

@@ -1,0 +1,273 @@
+#!/usr/bin/env python
+import rospy
+
+import sensor_msgs.msg
+import geometry_msgs.msg
+import nav_msgs.msg
+import std_msgs.msg
+import numpy as np
+import tf
+import math
+
+
+g=    np.array((0.,0.,-9.8066)) # Gravity from Gazebo world file
+Be=   np.array((6e-06,2.3e-05,4.2e-05)) # Be from Gazebo world file - ATTENTION: Non-intuitive, x and y from world file are NOT swapped, only z is. 
+                                        # Possibly bug in Gazebo.
+Be=   Be*1./np.linalg.norm(Be) # normalize to unit vector - since the simulated magnetometer scales weirdly
+
+GPS=  [48.75,9.105,0]          # GPS reference coordinate from rrbot.xacro
+# State vector: px py pz vx vy vz qw qx qy qz bx by bz bh
+mu=   np.array((0.,0.,0.,0.,0.,0.,1.,0.,0.,0.,0.,0.,0.,0.))
+Sigma=np.diag(
+      np.array((1.,1.,1.,1.,1.,1.,0.1,0.1,0.1,0.1,1.,1.,1.,1.)) #uncertainty initialisation
+      )
+Dt=   0.01            # Gazebo IMU update rate
+R0=   np.array((.01,.01,.01,.1,.1,.1,.1,.1,.1,.1,.01,.01,.01,.01)) # crude process noise approximation
+R=    np.diag((R0*Dt)**2)
+#Q=    np.diag(np.array((1.,1.,1.,.1,.1,.1,.1,.1,.1,1))**2) # Q is given in the individual sensor handlers, since only a subset is used in each case
+
+pub={}
+
+def Rot(q): # R from Notation
+    xx=q[1]*q[1]
+    xy=q[1]*q[2]
+    xz=q[1]*q[3]
+    xw=q[1]*q[0]
+    yy=q[2]*q[2]
+    yz=q[2]*q[3]
+    yw=q[2]*q[0]
+    zz=q[3]*q[3]
+    zw=q[3]*q[0]
+    return np.array((
+        (1-2*(yy+zz),  2*(xy-zw),  2*(xz+yw)),
+        (  2*(xy+zw),1-2*(xx+zz),  2*(yz-xw)),
+        (  2*(xz-yw),  2*(yz+xw),1-2*(xx+yy))
+        ))
+
+def V3(a):
+    return geometry_msgs.msg.Vector3(a[0],a[1],a[2])
+
+def P3(a):
+    return geometry_msgs.msg.Point(a[0],a[1],a[2])
+
+def Q4(q):
+    return geometry_msgs.msg.Quaternion(q[1],q[2],q[3],q[0])
+
+def quat2Euler(q): # not needed - you can use tf.transformations.euler_from_quaternion
+    ww=q[0]*q[0]
+    xx=q[1]*q[1]
+    yy=q[2]*q[2]
+    zz=q[3]*q[3]
+
+    r13=2.*(q[1]*q[3]-q[0]*q[2])
+    r11=ww+xx-yy-zz
+    r12=2.*(q[1]*q[2]+q[0]*q[3])
+    r23=2.*(q[2]*q[3]+q[0]*q[1])
+    r33=ww-xx-yy+zz
+    rpy=np.array((math.atan2(r23,r33),math.asin(-r13),math.atan2(r12,r11)))
+    return 180.*rpy/math.pi
+
+def handle_imu(msg): 
+    global mu,Sigma
+    omega_t=np.array([msg.angular_velocity.y,msg.angular_velocity.x,-msg.angular_velocity.z]) # convert from ENU to NED
+    a_t=np.array([msg.linear_acceleration.y,msg.linear_acceleration.x,-msg.linear_acceleration.z]) # convert from ENU to NED
+
+    p0=mu[0:3]
+    v0=mu[3:6]
+    q0=mu[6:10]
+    bg1=mu[10:13] # eq 2
+    bh1=mu[13] # eq 1
+    omega_hat=(omega_t-bg1) #eq 3
+    omega_s=np.linalg.norm(omega_t)
+    on=omega_hat* 1./omega_s
+    s_=math.sin(omega_s*Dt*0.5)
+    c_=math.cos(omega_s*Dt*0.5)
+    q1=np.matmul(np.array((
+        ( c_,      -s_*on[0],-s_*on[1],-s_*on[2]),
+        ( s_*on[0], c_,       s_*on[2],-s_*on[1]),
+        ( s_*on[1],-s_*on[2], c_      , s_*on[0]),
+        ( s_*on[2], s_*on[1],-s_*on[0], c_      ))),q0) #eq 5
+    q1=q1/np.linalg.norm(q1) #alg2 line 3
+    v1=v0 + Dt*(np.matmul(Rot(q0),a_t) - g) # eq 6
+    p1=p0 + Dt*v0 #eq 7
+    mu=np.concatenate((p1,v1,q1,bg1,np.atleast_1d(bh1))) #alg2 line 2 
+
+    dqdq_ = np.identity(4) + 0.5 * Dt * np.array((
+        ( 0,           -omega_hat[0],-omega_hat[1],-omega_hat[2]),
+        ( omega_hat[0], 0,            omega_hat[2],-omega_hat[1]),
+        ( omega_hat[1],-omega_hat[2], 0,            omega_hat[0]),
+        ( omega_hat[2], omega_hat[1],-omega_hat[0], 0)
+        )) # eq 13
+    dqdb_ = 0.5 * Dt * np.array((
+        ( q0[1], q0[2], q0[3]),
+        (-q0[0], q0[3],-q0[2]),
+        (-q0[3],-q0[0], q0[1]),
+        ( q0[2],-q0[1],-q0[0])
+        )) # eq 14
+    xx_ = a_t[0]*q0[1]
+    xy_ = a_t[0]*q0[2]
+    xz_ = a_t[0]*q0[3]
+    xw_ = a_t[0]*q0[0]
+    yx_ = a_t[1]*q0[1]
+    yy_ = a_t[1]*q0[2]
+    yz_ = a_t[1]*q0[3]
+    yw_ = a_t[1]*q0[0]
+    zx_ = a_t[2]*q0[1]
+    zy_ = a_t[2]*q0[2]
+    zz_ = a_t[2]*q0[3]
+    zw_ = a_t[2]*q0[0]
+    dvdq_ = 2 * Dt * np.array((
+        (-yz_+zy_    ,yy_+zz_    ,-xy_+yx_+zw_,-xz_-yw_+zx_),
+        ( xz_-zx_    ,xy_-yx_-zw_, xx_+zz_    , xw_-yz_+zy_),
+        (-xy_+yx_    ,xz_+yw_-zx_,-xw_+yz_-zy_,xx_+yy_)
+        )) # eq 15
+
+    G=np.zeros((14,14))
+    G[0:3,0:3]     = np.identity(3)
+    G[0:3,3:6]     = Dt*np.identity(3)
+    G[3:6,3:6]     = np.identity(3)
+    G[3:6,6:10]    = dvdq_
+    G[6:10,6:10]   = dqdq_
+    G[6:10,10:13]  = dqdb_
+    G[10:13,10:13] = np.identity(3)
+    G[13,13]       = 1.0 # eq 8
+
+    Sigma = np.matmul(np.matmul(G,Sigma),G.transpose()) + R #alg2 line 5
+
+    #export
+    nmsg=nav_msgs.msg.Odometry()
+    nmsg.header=msg.header
+    nmsg.header.frame_id="NED"
+    nmsg.child_frame_id="NED"
+    gyro_ned=np.matmul(Rot(q1),omega_t)
+    nmsg.twist.twist.angular=V3(gyro_ned)
+    nmsg.twist.twist.linear=V3(v1)
+    nmsg.pose.pose.position=P3(p1)
+    nmsg.pose.pose.orientation=Q4(q1)
+    PQ=np.concatenate((np.concatenate((Sigma[0:3,0:3],Sigma[0:3,7:10])),np.concatenate((Sigma[7:10,0:3],Sigma[7:10,7:10]))),axis=1)
+    nmsg.pose.covariance=list(PQ.flatten())
+    VG=np.concatenate((np.concatenate((Sigma[3:6,3:6],Sigma[3:6,10:13])),np.concatenate((Sigma[10:13,3:6],Sigma[10:13,10:13]))),axis=1)
+    nmsg.twist.covariance=list(VG.flatten())
+    pub["state_estimate"].publish(nmsg)
+    nmsg=V3(180.*np.array(tf.transformations.euler_from_quaternion([q1[1],q1[2],q1[3],q1[0]]))/math.pi)
+    pub["euler_angle"].publish(nmsg)
+    nmsg=V3(quat2Euler(q1))
+    pub["euler_angle_debug"].publish(nmsg)
+    nmsg=V3(bg1)
+    pub["gyro_bias"].publish(nmsg)
+    nmsg=V3([0.,0.,bh1])
+    pub["height_bias"].publish(nmsg)
+
+def update(H,zt,zh,Q):
+    global Sigma,mu
+    zq= np.linalg.inv(np.matmul(np.matmul(H,Sigma),H.transpose()) + Q)
+    K = np.matmul(np.matmul(Sigma,H.transpose()),zq) #alg2 line 7
+    mu = mu + np.matmul(K,(zt-zh)) #alg2 line 8
+    mu[6:10]=mu[6:10]/np.linalg.norm(mu[6:10])#alg2 line 9
+    Sigma = np.matmul( np.identity(14) - np.matmul(K,H) , Sigma )
+
+def handle_baro(msg):
+    H=np.zeros((1,14))
+    H[0,2]=-1.
+    H[0,13]=-1.
+    zt=np.array([msg.point.z])
+    zh=np.atleast_1d(-mu[2]-mu[13])
+    Q=np.array([[1.]])
+    update(H,zt,zh,Q)
+
+def handle_gt(msg):
+    return
+    # not used right now - just for testing
+    H=np.zeros((3,14))
+    H[0:3,0:3]=np.identity(3)
+    zt=np.array([msg.pose.pose.position.y,msg.pose.pose.position.x,-msg.pose.pose.position.z])# convert from lat+long to NED
+    zh=mu[0:3]
+    Q=np.identity(3)*10000
+    update(H,zt,zh,Q)
+
+def handle_gps_pos(msg):
+    H=np.zeros((3,14))
+    lat=msg.latitude-GPS[0]
+    lon=msg.longitude-GPS[1]
+    alt=msg.altitude-GPS[2]
+    latfac=40007863./360. # polar earth circumference divided by 360 deg (latitude is in degrees)
+    lonfac=math.cos(GPS[0]*math.pi/180.)*40075017./360. #equatorial earth circumference scaled by latitude and divided by 360 deg
+    H=np.zeros((3,14))
+    H[0:3,0:3]=np.identity(3)
+    zt=np.array([-lon*lonfac,lat*latfac,-alt])# convert from lat+long to NED WARNING: Axis swapped between ROS kinetic and noetic - this is for noetic
+    zh=mu[0:3]
+    Q=np.identity(3)*100
+    update(H,zt,zh,Q)
+
+    nmsg=P3(zt)
+    pub["gps_pos_debug"].publish(nmsg)
+
+def handle_gps_vel(msg):
+    H=np.zeros((3,14))
+    H[0:3,3:6]=np.identity(3)
+    zt=np.array([msg.vector.y,msg.vector.x,-msg.vector.z])# convert from ENU to NED
+    zh=mu[3:6]
+    Q=np.identity(3)*0.01
+    update(H,zt,zh,Q)
+
+    nmsg=V3(zt)
+    pub["gps_vel_debug"].publish(nmsg)
+
+
+def handle_mag(msg):
+    mag=np.array([msg.vector.y,msg.vector.x,-msg.vector.z])# convert from ENU to NED
+    q=mu[6:10]
+    xx_=Be[0]*q[1]
+    xy_=Be[0]*q[2]
+    xz_=Be[0]*q[3]
+    xw_=Be[0]*q[0]
+    yx_=Be[1]*q[1]
+    yy_=Be[1]*q[2]
+    yz_=Be[1]*q[3]
+    yw_=Be[1]*q[0]
+    zx_=Be[2]*q[1]
+    zy_=Be[2]*q[2]
+    zz_=Be[2]*q[3]
+    zw_=Be[2]*q[0]
+    H=np.zeros((3,14))
+    H[0:3,6:10]=2.*np.array((
+        ( yz_-zy_,yy_+zz_    ,-xy_+yx_-zw_,-xz_+yw_+zx_),
+        (-xz_+zx_,xy_-yx_+zw_, xx_+zz_    ,-xw_-yz_+zy_),
+        ( xy_-yx_,xz_-yw_-zx_, xw_+yz_-zy_, xx_+yy_    )
+        )) # eq 22
+    zt=mag/np.linalg.norm(mag) # normalize
+    zh=np.matmul(Rot(mu[6:10]).transpose(),Be.transpose())
+    #print("Measured:",zt,"Estimated",zh)
+    Q=np.identity(3)*0.01
+    update(H,zt,zh,Q)
+
+if __name__ == '__main__':
+    rospy.init_node('ekf')
+    pub["state_estimate"]=   rospy.Publisher('state_estimate',nav_msgs.msg.Odometry, queue_size=3)
+    pub["euler_angle"]=      rospy.Publisher('euler_angle',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["euler_angle_debug"]=rospy.Publisher('euler_angle_debug',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["gps_pos_debug"]=    rospy.Publisher('gps_pos_debug',geometry_msgs.msg.Point, queue_size=3)
+    pub["gps_vel_debug"]=    rospy.Publisher('gps_vel_debug',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["gyro_bias"]=        rospy.Publisher('gyro_bias',geometry_msgs.msg.Vector3, queue_size=3)
+    pub["height_bias"]=      rospy.Publisher('height_bias',geometry_msgs.msg.Vector3, queue_size=3)
+    #rospy.Subscriber('imu_groundtruth',
+    rospy.Subscriber('sim_imu',
+                     sensor_msgs.msg.Imu,
+                     handle_imu)
+    rospy.Subscriber('sim_barometer',
+                     geometry_msgs.msg.PointStamped,
+                     handle_baro)
+    rospy.Subscriber('sim_gps_fix',
+                     sensor_msgs.msg.NavSatFix,
+                     handle_gps_pos)
+    rospy.Subscriber('sim_gps_vel',
+                     geometry_msgs.msg.Vector3Stamped,
+                     handle_gps_vel)
+    rospy.Subscriber('position_groundtruth',
+                     nav_msgs.msg.Odometry,
+                     handle_gt)
+    rospy.Subscriber('sim_magnetometer',
+                     geometry_msgs.msg.Vector3Stamped,
+                     handle_mag)
+
+    rospy.spin()
