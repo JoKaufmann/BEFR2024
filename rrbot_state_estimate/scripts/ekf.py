@@ -77,14 +77,13 @@ class EKF:
 
         # Initialize process noise covariance
         imu_dt = 0.01   # 100Hz
-        R_acc = np.array([0.35**2, 0.35**2, 0.3**2])
-        R_pos = np.zeros(3)                                 # inherent from velocity and acceleration
-        R_vel = R_acc*imu_dt**2/2                           # noise from acc integration
-        R_q = np.ones(4)*0.0001**2
-        R_b_gyro = np.ones(3)*0.0001**2
-        R_b_p_gps = np.ones(3)*0.0001**2
-        R_b_baro = np.array([0.0001**2])
-        self.R = np.diag(np.concatenate((R_pos, R_vel, R_q, R_b_gyro, R_b_p_gps, R_b_baro)))
+        R_pos = np.ones(3)*0.1
+        R_vel = np.ones(3)
+        R_q = np.ones(4)
+        R_b_gyro = np.ones(3)*0.01
+        R_b_p_gps = np.ones(3)*0.01
+        R_b_baro = np.array([0.01])
+        self.R = np.diag(np.concatenate((R_pos, R_vel, R_q, R_b_gyro, R_b_p_gps, R_b_baro)))*imu_dt**2
         
         # Initialize measurement noise covariance
         Q_GPS_p = np.array([0.01**2, 0.01**2, 0.01**2])
@@ -94,12 +93,12 @@ class EKF:
         self.Q = np.diag(np.concatenate((Q_GPS_p, Q_GPS_v, Q_baro, Q_mag)))
         
         # Initialize state covariance
-        Sigma_p_init = np.ones(3)*0**2                  # init from groundtruth
-        Sigma_v_init = np.ones(3)*0**2           # init from groundtruth
-        Sigma_q_init = np.ones(4)*0.01**2                # init from groundtruth
-        Sigma_b_gyro_init = np.ones(3)*0.5**2           # init for rate drift
-        Sigma_b_p_gps_init = np.array([0.5**2, 0.5**2, 0.5**2])        # 5m variance in pos. of gps
-        Sigma_b_baro_init = np.array([0.5**2])              # 10m variance in height of barometer     
+        Sigma_p_init = np.ones(3)                   
+        Sigma_v_init = np.ones(3)                   
+        Sigma_q_init = np.ones(4)*0.1               
+        Sigma_b_gyro_init = np.ones(3)
+        Sigma_b_p_gps_init = np.ones(3)
+        Sigma_b_baro_init = np.array([1])    
         self.Sigma = np.diag(np.concatenate((Sigma_p_init, Sigma_v_init, Sigma_q_init, Sigma_b_gyro_init, Sigma_b_p_gps_init, Sigma_b_baro_init)))
 
         # Set timestamp
