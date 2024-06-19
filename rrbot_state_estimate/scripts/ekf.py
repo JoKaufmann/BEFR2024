@@ -17,8 +17,8 @@ REFERENCE_LON = 9.105
 REFERENCE_ALT = 0
 
 # Magnetic field constants
-# MAG = np.array([6e-06, 2.3e-05, -4.2e-05])
-MAG = np.array([2.3e-05, 6e-06, -4.2e-05])      # y and x changed, due to reference heading 0 -> x = east, north = y
+MAG = np.array([6e-06, 2.3e-05, 4.2e-05])
+#MAG = np.array([2.3e-05, 6e-06, -4.2e-05])      # y and x changed, due to reference heading 0 -> x = east, north = y
 MAG = MAG/np.linalg.norm(MAG)                   # normalize to compare with the magnetometer measurement
 
 def quaternion_product(q1, q2):
@@ -77,13 +77,13 @@ class EKF:
 
         # Initialize process noise covariance
         imu_dt = 0.01   # 100Hz
-        R_pos = np.ones(3)*0.1
-        R_vel = np.ones(3)
-        R_q = np.ones(4)
+        R_pos = np.ones(3)*0.01
+        R_vel = np.ones(3)*0.1
+        R_q = np.ones(4)*0.1
         R_b_gyro = np.ones(3)*0.01
         R_b_p_gps = np.ones(3)*0.01
         R_b_baro = np.array([0.01])
-        self.R = np.diag(np.concatenate((R_pos, R_vel, R_q, R_b_gyro, R_b_p_gps, R_b_baro)))*imu_dt**2
+        self.R = np.diag((np.concatenate((R_pos, R_vel, R_q, R_b_gyro, R_b_p_gps, R_b_baro))*imu_dt)**2)
         
         # Initialize measurement noise covariance
         Q_GPS_p = np.array([0.01**2, 0.01**2, 0.01**2])
@@ -259,16 +259,16 @@ class EKF:
         dt = (rospy.Time.now() - self.prev_time).to_sec()
         self.prev_time = rospy.Time.now()
         
-        # convert to x,y,z
-        self.a = np.array([data.linear_acceleration.x, data.linear_acceleration.y, data.linear_acceleration.z])
-        self.omega = np.array([data.angular_velocity.x, data.angular_velocity.y, data.angular_velocity.z])
+        # convert to x,y,z and from ENU to NED
+        self.a = np.array([data.linear_acceleration.y, data.linear_acceleration.x, -data.linear_acceleration.z])
+        self.omega = np.array([data.angular_velocity.y, data.angular_velocity.x, -data.angular_velocity.z])
         
         # Perform the prediction step
         self.prediction_step(dt)
     
     def magnetometer_callback(self, data):
-        # convert to x,y,z
-        self.m_M = np.array([data.vector.x, data.vector.y, data.vector.z])
+        # convert to x,y,z and from ENU to END
+        self.m_M = np.array([data.vector.y, data.vector.x, -data.vector.z])
         self.m_M = self.m_M/np.linalg.norm(self.m_M)                        # normalize to compare with magnetic field vector
 
         # Perform the update step
@@ -285,7 +285,8 @@ class EKF:
         self.update_step(Sensor.GPS_POS)
     
     def gps_vel_callback(self, data):
-        self.v_GPS = np.array([data.vector.x, data.vector.y, data.vector.z])
+        # convert from ENU to END
+        self.v_GPS = np.array([data.vector.y, data.vector.x, -data.vector.z])
 
         # Perform the update step
         self.update_step(Sensor.GPS_VEL)
