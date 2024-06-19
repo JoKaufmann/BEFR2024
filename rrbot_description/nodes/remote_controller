@@ -40,22 +40,22 @@ pos=np.array([0.,0.,0.])
 vel=np.array([0.,0.,0.])
 def handle_state(msg):
     global q,pos,vel
-    #q0=msg.pose.pose.orientation # ground truth is ENU
-    #q=geometry_msgs.msg.Quaternion(q0.y,q0.x,-q0.z,q0.w)
-    #vel[0]=msg.twist.twist.linear.y
-    #vel[1]=msg.twist.twist.linear.x
-    #vel[2]=-msg.twist.twist.linear.z
-    #pos[0]=msg.pose.pose.position.y
-    #pos[1]=msg.pose.pose.position.x
-    #pos[2]=-msg.pose.pose.position.z
-    #return
-    q=msg.pose.pose.orientation
-    vel[0]=msg.twist.twist.linear.x
-    vel[1]=msg.twist.twist.linear.y
-    vel[2]=msg.twist.twist.linear.z
-    pos[0]=msg.pose.pose.position.x
-    pos[1]=msg.pose.pose.position.y
-    pos[2]=msg.pose.pose.position.z
+    q0=msg.pose.pose.orientation # ground truth is ENU
+    q=geometry_msgs.msg.Quaternion(q0.y,q0.x,-q0.z,q0.w)
+    vel[0]=msg.twist.twist.linear.y
+    vel[1]=msg.twist.twist.linear.x
+    vel[2]=-msg.twist.twist.linear.z
+    pos[0]=msg.pose.pose.position.y
+    pos[1]=msg.pose.pose.position.x
+    pos[2]=-msg.pose.pose.position.z
+    return
+    #q=msg.pose.pose.orientation
+    #vel[0]=msg.twist.twist.linear.x
+    #vel[1]=msg.twist.twist.linear.y
+    #vel[2]=msg.twist.twist.linear.z
+    #pos[0]=msg.pose.pose.position.x
+    #pos[1]=msg.pose.pose.position.y
+    #pos[2]=msg.pose.pose.position.z
 
 current_waypoint=0
 def handle_imu(msg):
@@ -120,8 +120,8 @@ if __name__ == '__main__':
     rospy.Subscriber('right_stick',
                      sensor_msgs.msg.Joy,
                      handle_stick,1)
-    #rospy.Subscriber('position_groundtruth',
-    rospy.Subscriber('state_estimate',
+    rospy.Subscriber('position_groundtruth',
+    #rospy.Subscriber('state_estimate',
                      nav_msgs.msg.Odometry,
                      handle_state)
     rospy.Subscriber('sim_imu',
