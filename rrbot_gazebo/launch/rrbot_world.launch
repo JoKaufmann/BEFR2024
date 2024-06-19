@@ -6,6 +6,7 @@
   <arg name="gui" default="true"/>
   <arg name="headless" default="false"/>
   <arg name="debug" default="false"/>
+  <arg name="PI" default="3.14159"/>
 
   <!-- We resume the logic in empty_world.launch, changing only the name of the world to be launched -->
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
@@ -20,13 +21,23 @@
   <!-- Load the URDF into the ROS Parameter Server -->
   <param name="robot_description"
     command="$(find xacro)/xacro --inorder '$(find rrbot_description)/urdf/rrbot.xacro'" />
+  
+  <param name="car_description"
+    command="$(find xacro)/xacro --inorder '$(find car_description)/urdf/car.xacro'" />
 
   <!-- Run a python script to the send a service call to gazebo_ros to spawn a URDF robot -->
   <node name="urdf_spawner" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
     args="-urdf -model rrbot -param robot_description"/>
 
+  <!-- Run a python script to the send a service call to gazebo_ros to spawn a URDF robot -->
+  <node name="urdf_spawner2" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
+    args="-urdf -model car -param car_description -x 2 -y 2"/>
+
   <!-- ros_control rrbot launch file -->
   <include file="$(find rrbot_control)/launch/rrbot_control.launch" />
+
+  <!-- ros_control rrbot launch file -->
+  <include file="$(find car_control)/launch/car_control.launch" />
 
 
   <include file="$(find rrbot_description)/launch/rrbot_root_tf.launch" />
@@ -39,5 +50,57 @@
     <remap from="/joy" to="right_stick" />
   </node>
   <node ns="/rrbot" name="manual_control" pkg="rrbot_description" type="remote_controller" respawn="false" output="screen" />
+
+  <node ns="/car" name="manual_control" pkg="car_description" type="drive_car" respawn="false" output="screen" />
+  
+  <node ns="/rrbot" name="camera" pkg="rrbot_description" type="fake_visual_detector" respawn="false" output="screen">
+    <remap from="camera" to="position_groundtruth" />
+    <remap from="target" to="/car/position_groundtruth" />
+    <param name="pitch" value="$(eval PI / 4 )" />
+    <param name="f" value="300.0" />
+    <param name="SigmaX" value="4.0" />
+    <param name="SigmaY" value="4.0" />
+    <param name="SigmaZ" value="0.25" />
+  </node>
+
+  <node ns="/static/camera1" name="camera" pkg="rrbot_description" type="fake_visual_detector" respawn="false" output="screen">
+    <remap from="target" to="/rrbot/position_groundtruth" />
+    <param name="pitch" value="$(eval -1 * PI / 4 )" />
+    <param name="yaw" value="0.0" />
+    <param name="X" value="-5.0" />
+    <param name="Y" value="0.0" />
+    <param name="Z" value="0.0" />
+    <param name="f" value="100.0" />
+    <param name="DepthFactor" value="0.0" />
+    <param name="SigmaX" value="4.0" />
+    <param name="SigmaY" value="4.0" />
+    <param name="SigmaZ" value="0.25" />
+  </node>
+  <node ns="/static/camera2" name="camera" pkg="rrbot_description" type="fake_visual_detector" respawn="false" output="screen">
+    <remap from="target" to="/rrbot/position_groundtruth" />
+    <param name="pitch" value="$(eval -1 * PI / 4 )" />
+    <param name="yaw" value="$(eval -3 * PI / 4 )" />
+    <param name="X" value="5.0" />
+    <param name="Y" value="5.0" />
+    <param name="Z" value="0.0" />
+    <param name="f" value="100.0" />
+    <param name="DepthFactor" value="0.0" />
+    <param name="SigmaX" value="4.0" />
+    <param name="SigmaY" value="4.0" />
+    <param name="SigmaZ" value="0.25" />
+  </node>
+  <node ns="/static/camera3" name="camera" pkg="rrbot_description" type="fake_visual_detector" respawn="false" output="screen">
+    <remap from="target" to="/rrbot/position_groundtruth" />
+    <param name="pitch" value="$(eval -1 * PI / 4 )" />
+    <param name="yaw" value="$(eval 3 * PI / 4 )" />
+    <param name="X" value="5.0" />
+    <param name="Y" value="-5.0" />
+    <param name="Z" value="0.0" />
+    <param name="f" value="100.0" />
+    <param name="DepthFactor" value="0.0" />
+    <param name="SigmaX" value="4.0" />
+    <param name="SigmaY" value="4.0" />
+    <param name="SigmaZ" value="0.25" />
+  </node>
 
 </launch>
