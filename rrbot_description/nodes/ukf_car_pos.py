@@ -23,6 +23,11 @@ def qv_inv(q1):
 
 class UKF:
     def __init__(self):
+        # Initialization flags
+        self.state_initialized = False
+        self.state_car_initialized = False
+        self.state_drone_initialized = False
+
         # Initialize camera and measurement vector
         # ToDo: check where the camera is defined to get correct direction and focal length
         # /rrbot/camera/SigmaX: 4.0
@@ -34,14 +39,33 @@ class UKF:
         self.pp = self.size*0.5             # principal point
         self.f = 300                        # focal length
         self.dcam = np.zeros(3)             # target position in camera frame
+
+        # Sigma point parameters
+        self.dim_x = 13
+        self.alpha = 1e-3 # suggested by Wan and van der Merwe
+        self.beta = 2.0 # 2.0 is optimal for Gaussian priors
+        self.kappa = 0.0
+        self.lambda_ = self.alpha**2 * (self.dim_x + self.kappa) - self.dim_x
+        self.gamma = np.sqrt(self.dim_x + self.lambda_)
+        # Sigma point weights
+        self.Wm = np.zeros(2*self.dim_x + 1)
+        self.Wc = np.zeros(2*self.dim_x + 1)
+        self.Wm[0] = self.lambda_ / (self.dim_x + self.lambda_)
+        self.Wc[0] = self.lambda_ / (self.dim_x + self.lambda_) + (1 - self.alpha**2 + self.beta)
+        for i in range(1, 2*self.dim_x + 1):
+            self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
         
         # Initialize state vector
         self.gt_car = np.zeros(10)
         self.gt_drone = np.zeros(10)
-        self.state_initialized = False
-        self.state_car_initialized = False
-        self.state_drone_initialized = False
-        self.x = np.zeros(13) # (target_pos, target_vel, cam_pos, cam_orientation) #TODO: Define State
+        self.x = np.zeros(self.dim_x) # (target_pos, target_vel, cam_pos, cam_orientation) #TODO: Define State
+
+        # Initialize covariance matrix
+        self.Sigma = np.eye(self.dim_x) #TODO: Define Covariance
+
+        # Initialize noise matrices
+        self.R = np.eye(self.dim_x) #TODO: Define process noise
+        self.Q = np.eye(self.dim_x) #TODO: Define measurement noise
 
         # Set initial timestamp
         self.prev_time = rospy.Time.now()
@@ -55,9 +79,29 @@ class UKF:
         self.pub = rospy.Publisher('car/pos_estimate', PointStamped, queue_size=10)
     
     def prediction_step(self, dt):
-        # if self.state_initialized is False:
-        #     return
-        pass
+        if self.state_initialized is False:
+            return
+        
+        # Compute sigma points
+        sigma_points = np.zeros((13, 27)) # dimension len(x) x 2*len(x) + 1
+        sigma_points[:, 0] = self.x
+        for i in range(1, 1+self.dim_x):
+            sigma_points[:, i] = self.x + self.gamma*np.sqrt(self.Sigma[i-1])
+            sigma_points[:, i+self.dim_x] = self.x - self.gamma*np.sqrt(self.Sigma[i-1])
+
+        # Predict sigma points through process model #TODO Implement process model
+        sigma_points_pred = np.zeros((13, 27))
+
+        # Compute predicted mean
+        x_pred = self.Wm[0]*sigma_points_pred[:, 0]
+        for i in range(1, 2*self.dim_x + 1):
+            x_pred += self.Wm[i]*sigma_points_pred[:, i]
+
+        # Compute predicted covariance #TODO Define process noise
+        P_pred = self.Wc[0]*(sigma_points_pred[:, 0]-x_pred)@(sigma_points_pred[:, 0]-x_pred).T + self.R
+        for i in range(1, 2*self.dim_x + 1):
+            P_pred += self.Wc[i]*(sigma_points_pred[:, i]-x_pred)@(sigma_points_pred[:, i]-x_pred).T + self.R #TODO Add R each time?
+
 
     def update_step(self):
         if self.state_initialized is False:
