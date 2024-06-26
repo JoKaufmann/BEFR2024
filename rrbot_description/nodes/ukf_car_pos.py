@@ -29,19 +29,20 @@ class UKF:
         self.state_drone_initialized = False
 
         # Initialize camera and measurement vector
-        # ToDo: check where the camera is defined to get correct direction and focal length
         # /rrbot/camera/SigmaX: 4.0
         # /rrbot/camera/SigmaY: 4.0
         # /rrbot/camera/SigmaZ: 0.25
-        # /rrbot/camera/f: 300.0
-        # /rrbot/camera/pitch: 0.7853975
-        self.size = np.array([640, 480])    # sensor/image size
-        self.pp = self.size*0.5             # principal point
-        self.f = 300                        # focal length
-        self.dcam = np.zeros(3)             # target position in camera frame
+        self.sensor_size = np.array([640, 480])     # sensor/image size
+        self.pp = self.sensor_size*0.5              # principal point
+        self.f = 300                                # focal length
+        self.depth_factor = 1                       # depth factor
+        self.cam_offset = np.zeros(3)               # camera offset in drone frame
+        # camera direction on robot as quaternion from [roll, pitch, yaw]
+        self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/4, 0)
+        self.dcam = np.zeros(3)                     # target position in camera frame
 
         # Sigma point parameters
-        self.dim_x = 13
+        self.dim_x = 6
         self.alpha = 1e-3 # suggested by Wan and van der Merwe
         self.beta = 2.0 # 2.0 is optimal for Gaussian priors
         self.kappa = 0.0
@@ -58,11 +59,12 @@ class UKF:
         # Initialize state vector
         self.gt_car = np.zeros(10)
         self.gt_drone = np.zeros(10)
-        self.x = np.zeros(self.dim_x) # (target_pos, target_vel, cam_pos, cam_orientation) #TODO: Define State
+        self.x = np.zeros(self.dim_x)       # (target_pos, target_vel)
 
         # Initialize covariance matrix
         self.Sigma = np.eye(self.dim_x) #TODO: Define Covariance
-
+        self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))   # dimension len(x) x 2*len(x) + 1
+        
         # Initialize noise matrices
         self.R = np.eye(self.dim_x) #TODO: Define process noise
         self.Q = np.eye(self.dim_x) #TODO: Define measurement noise
@@ -83,33 +85,83 @@ class UKF:
             return
         
         # Compute sigma points
-        sigma_points = np.zeros((13, 27)) # dimension len(x) x 2*len(x) + 1
-        sigma_points[:, 0] = self.x
-        for i in range(1, 1+self.dim_x):
-            sigma_points[:, i] = self.x + self.gamma*np.sqrt(self.Sigma[i-1])
-            sigma_points[:, i+self.dim_x] = self.x - self.gamma*np.sqrt(self.Sigma[i-1])
+        self.get_sigma_points()
 
-        # Predict sigma points through process model #TODO Implement process model
-        sigma_points_pred = np.zeros((13, 27))
-
+        # Calculate transition of sigma points through state transition model
+        sigma_points_pred = np.zeros((self.dim_x, 2*self.dim_x + 1))
+        for i in range(2*self.dim_x + 1):
+            sigma_points_pred[:, i] = self.state_transition(self.sigma_points[:, i], dt)
+        
         # Compute predicted mean
-        x_pred = self.Wm[0]*sigma_points_pred[:, 0]
-        for i in range(1, 2*self.dim_x + 1):
-            x_pred += self.Wm[i]*sigma_points_pred[:, i]
+        self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
 
-        # Compute predicted covariance #TODO Define process noise
-        P_pred = self.Wc[0]*(sigma_points_pred[:, 0]-x_pred)@(sigma_points_pred[:, 0]-x_pred).T + self.R
-        for i in range(1, 2*self.dim_x + 1):
-            P_pred += self.Wc[i]*(sigma_points_pred[:, i]-x_pred)@(sigma_points_pred[:, i]-x_pred).T + self.R #TODO Add R each time?
-
-
+        # Compute predicted covariance
+        self.Sigma = np.sum(self.Wc*(sigma_points_pred - self.x)@(sigma_points_pred - self.x).T, axis=1) + self.R
+        
     def update_step(self):
         if self.state_initialized is False:
             return
-        # ToDo: Implement update step
+        # get sigma points from pred. state and state covariance
+        self.get_sigma_points()
 
-        self.publish_data()
+        # transform sigma points to measurement space
+        Z_sigma = np.zeros((3, 2*self.dim_x + 1))
+        for i in range(2*self.dim_x + 1):
+            Z_sigma[:, i] = self.measurement_model(self.sigma_points[0:3, i])
+        
+        # mean of predicted measurement
+        z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
+
+        # covariance of predicted measurement
+        S = np.sum(self.Wc*(Z_sigma - z_sigma_mean)@(Z_sigma - z_sigma_mean).T, axis=1) + self.Q
+
+        # cross-covariance between state and measurement
+        Sigma_hat = np.sum(self.Wc*(self.sigma_points - self.x)@(Z_sigma - z_sigma_mean).T, axis=1)
+
+        # Kalman gain
+        K = Sigma_hat/S
+        
+        # update state and covariance
+        self.x += K*(self.dcam - z_sigma_mean)
+        self.Sigma -= K*S*K.T
     
+    def state_transition(self, x: np.array, dt: float) -> np.array:
+        ''' State transition model for target
+        Args:
+            x (np.array): state vector
+            dt (float): time step
+        Returns:
+            np.array: predicted state vector
+        '''
+        pos_pred = x[0:3] + dt*x[3:6]
+        vel_pred = x[3:6]               # assumption of constant velocity
+        return np.vstack((pos_pred, vel_pred))
+
+    def measurement_model(self, x: np.array) -> np.array:
+        ''' Measurement model for camera
+        Args:
+            x (np.array): position of target in world frame
+        Returns:
+            np.array: measurement vector (u, v, d) in image frame
+        '''
+        # calc. current cam position and direction
+        cam_pos = self.gt_drone[0:3] + qv_mult(self.gt_drone[6:10], self.cam_offset)
+        cam_dir = tf.transformations.quaternion_multiply(self.cam_dir, self.gt_drone[6:10])
+        # calc. target position in camera frame
+        tar_pos_world = x - cam_pos
+        tar_pos_cam = qv_mult(qv_inv(cam_dir), tar_pos_world)
+        # calc. target position in image frame
+        u = (-self.f*tar_pos_cam[1]/tar_pos_cam[0])+self.pp[0]
+        v = (-self.f*tar_pos_cam[2]/tar_pos_cam[0])+self.pp[1]
+        d = self.depth_factor*np.linalg.norm(tar_pos_cam)
+        return np.array([u, v, d])
+        
+    def get_sigma_points(self):
+        self.sigma_points[:, 0] = self.x
+        L = np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma
+        self.sigma_points[:, 1:1+self.dim_x] = self.x + self.gamma*L
+        self.sigma_points[:, 1+self.dim_x:] = self.x - self.gamma*L
+
     def groundtruth_drone_callback(self, data):
         # position x,y,z
         self.gt_drone[0] = data.pose.pose.position.x
@@ -162,38 +214,29 @@ class UKF:
         if self.state_initialized is False:
             return
         # get depth camera data
-        u = data.point.x
-        v = data.point.y
-        d = data.point.z
+        self.dcam[0] = data.point.x     # u
+        self.dcam[1] = data.point.y     # v
+        self.dcam[2] = data.point.z     # d
 
-        # calculate target position in camera frame # ToDo: Check sign
-        x_cam = d*(-self.pp[0] + u)*np.sqrt(1/(self.f**2 + self.pp[0]**2 - 2*self.pp[0]*u + self.pp[1]**2 - 2*self.pp[1]*v + u**2 + v**2))
-        y_cam = d*(-self.pp[1] + v)*np.sqrt(1/(self.f**2 + self.pp[0]**2 - 2*self.pp[0]*u + self.pp[1]**2 - 2*self.pp[1]*v + u**2 + v**2))
-        z_cam = -d*self.f*np.sqrt(1/(self.f**2 + self.pp[0]**2 - 2*self.pp[0]*u + self.pp[1]**2 - 2*self.pp[1]*v + u**2 + v**2))
-        
-        # x_cam = d*(self.pp[0] - u)*np.sqrt(1/(self.f**2 + self.pp[0]**2 - 2*self.pp[0]*u + self.pp[1]**2 - 2*self.pp[1]*v + u**2 + v**2))
-        # y_cam = d*(self.pp[1] - v)*np.sqrt(1/(self.f**2 + self.pp[0]**2 - 2*self.pp[0]*u + self.pp[1]**2 - 2*self.pp[1]*v + u**2 + v**2))
-        # z_cam = d*self.f*np.sqrt(1/(self.f**2 + self.pp[0]**2 - 2*self.pp[0]*u + self.pp[1]**2 - 2*self.pp[1]*v + u**2 + v**2))
-        target_cam = np.array([x_cam, y_cam, z_cam])
-
-        # calculate target position in world frame # ToDo: add camera offset and orientation on drone (default all 0), see fake_visual_detector
-        q = self.gt_drone[6:10]
-        p = self.gt_drone[0:3]
-        self.dcam = qv_mult(q, target_cam) + p
-
-        print('x_calc: {} \t x_gt: {} \n y_calc: {} \t y_gt: {} \n z_calc: {} \t z_gt: {} \n'.format(self.dcam[0], self.gt_car[0], self.dcam[1], self.gt_car[1], self.dcam[2], self.gt_car[2]))
-        
+        self.prediction_step()
         self.update_step()
 
     def publish_data(self):
-        msg = PointStamped()
-        msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = "world"
-        msg.point.x = self.dcam[0]
-        msg.point.y = self.dcam[1]
-        msg.point.z = self.dcam[2]
+        odom = Odometry()
+        odom.header.stamp = rospy.Time.now()
+        odom.header.frame_id = "odom"
 
-        self.pub.publish(msg)
+        # Set the position
+        odom.pose.pose.position.x = self.x[0]
+        odom.pose.pose.position.y = self.x[1]
+        odom.pose.pose.position.z = self.x[2]
+
+        # Set the velocity
+        odom.twist.twist.linear.x = self.x[3]
+        odom.twist.twist.linear.y = self.x[4]
+        odom.twist.twist.linear.z = self.x[5]
+
+        self.pub.publish(odom)
 
 if __name__ == '__main__':
     rospy.init_node('ukf_node_2')
