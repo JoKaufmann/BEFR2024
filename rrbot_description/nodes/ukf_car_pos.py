@@ -113,6 +113,7 @@ class UKF:
         # get new sigma points from pred. state and state covariance
         self.get_sigma_points()
         # transform sigma points to measurement space
+        Z_sigma = np.zeros((3, 2*self.dim_x + 1))
         for i in range(2*self.dim_x + 1):
             Z_sigma[:3, i] = self.measurement_model(self.sigma_points[:3, i])
         Z_sigma[3:, :] = (Z_sigma[:3, :] - Z_sigma_old[:3, :])/dt
@@ -127,6 +128,7 @@ class UKF:
         S += self.Q
 
         # cross-covariance between state and measurement
+        Sigma_hat = np.zeros((self.dim_x, 3))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
         
@@ -226,6 +228,18 @@ class UKF:
     def depth_cam_callback(self, data):
         if self.state_initialized is False:
             return
+        # get depth camera data
+        self.dcam[0] = data.point.x     # u
+        self.dcam[1] = data.point.y     # v
+        self.dcam[2] = data.point.z     # d
+
+        # get current time
+        current_time = rospy.Time.now()
+        dt = (current_time - self.prev_time).to_sec()
+        self.prev_time = current_time
+
+        self.prediction_step(dt)
+        self.update_step()
         
         dt = rospy.Time.now() - self.prev_time
 
@@ -243,19 +257,9 @@ class UKF:
         
         self.prev_time = rospy.Time.now()
 
-<<<<<<< HEAD
-        # get current time
-        current_time = rospy.Time.now()
-        dt = (current_time - self.prev_time).to_sec()
-        self.prev_time = current_time
-
-        self.prediction_step(dt)
-        self.update_step()
-=======
         # Call the UKF algorithm
         self.prediction_step(dt)
         self.update_step(dt)
->>>>>>> db511def19777615b907fb6334857c6690e5f3de
 
     def publish_data(self):
         odom = Odometry()
