@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import rospy
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Vector3Stamped, PointStamped
@@ -96,7 +95,10 @@ class UKF:
         self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
 
         # Compute predicted covariance
-        self.Sigma = np.sum(self.Wc*(sigma_points_pred - self.x)@(sigma_points_pred - self.x).T, axis=1) + self.R
+        self.Sigma = np.zeros((self.dim_x, self.dim_x))
+        for i in range(2*self.dim_x + 1):
+            self.Sigma += self.Wc[i]*np.outer(sigma_points_pred[:, i]-self.x, sigma_points_pred[:, i]-self.x)
+        self.Sigma += self.R
         
     def update_step(self):
         if self.state_initialized is False:
@@ -113,10 +115,15 @@ class UKF:
         z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
 
         # covariance of predicted measurement
-        S = np.sum(self.Wc*(Z_sigma - z_sigma_mean)@(Z_sigma - z_sigma_mean).T, axis=1) + self.Q
+        S = np.zeros((3, 3))
+        for i in range(2*self.dim_x + 1):
+            S += self.Wc[i]*np.outer(Z_sigma[:, i]-z_sigma_mean, Z_sigma[:, i]-z_sigma_mean)
+        S += self.Q
 
         # cross-covariance between state and measurement
-        Sigma_hat = np.sum(self.Wc*(self.sigma_points - self.x)@(Z_sigma - z_sigma_mean).T, axis=1)
+        for i in range(2*self.dim_x + 1):
+            Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
+        
 
         # Kalman gain
         K = Sigma_hat/S
@@ -148,8 +155,8 @@ class UKF:
         cam_pos = self.gt_drone[0:3] + qv_mult(self.gt_drone[6:10], self.cam_offset)
         cam_dir = tf.transformations.quaternion_multiply(self.cam_dir, self.gt_drone[6:10])
         # calc. target position in camera frame
-        tar_pos_world = x - cam_pos
-        tar_pos_cam = qv_mult(qv_inv(cam_dir), tar_pos_world)
+        tar_to_cam_world = x - cam_pos
+        tar_pos_cam = qv_mult(qv_inv(cam_dir), tar_to_cam_world)
         # calc. target position in image frame
         u = (-self.f*tar_pos_cam[1]/tar_pos_cam[0])+self.pp[0]
         v = (-self.f*tar_pos_cam[2]/tar_pos_cam[0])+self.pp[1]
@@ -218,7 +225,12 @@ class UKF:
         self.dcam[1] = data.point.y     # v
         self.dcam[2] = data.point.z     # d
 
-        self.prediction_step()
+        # get current time
+        current_time = rospy.Time.now()
+        dt = (current_time - self.prev_time).to_sec()
+        self.prev_time = current_time
+
+        self.prediction_step(dt)
         self.update_step()
 
     def publish_data(self):
