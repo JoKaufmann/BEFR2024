@@ -39,7 +39,7 @@ class UKF:
         self.cam_offset = np.zeros(3)               # camera offset in drone frame
         # camera direction on robot as quaternion from [roll, pitch, yaw]
         self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/4, 0)
-        self.dcam = np.zeros(3)                     # target position in camera frame
+        self.dcam = np.zeros(6)                     # target position and velocity in camera frame
 
         # Sigma point parameters
         self.dim_x = 6
@@ -98,17 +98,23 @@ class UKF:
         # Compute predicted covariance
         self.Sigma = np.sum(self.Wc*(sigma_points_pred - self.x)@(sigma_points_pred - self.x).T, axis=1) + self.R
         
-    def update_step(self):
+    def update_step(self, dt):
         if self.state_initialized is False:
             return
-        # get sigma points from pred. state and state covariance
-        self.get_sigma_points()
-
-        # transform sigma points to measurement space
-        Z_sigma = np.zeros((3, 2*self.dim_x + 1))
-        for i in range(2*self.dim_x + 1):
-            Z_sigma[:, i] = self.measurement_model(self.sigma_points[0:3, i])
         
+        # Initialize sigma points in measurement space
+        Z_sigma = np.zeros((6, 2*self.dim_x + 1))
+        Z_sigma_old = np.zeros((3, 2*self.dim_x + 1))
+        # transform old sigma points to measurement space
+        for i in range(2*self.dim_x + 1):
+            Z_sigma_old[:, i] = self.measurement_model(self.sigma_points[:3, i])
+        # get new sigma points from pred. state and state covariance
+        self.get_sigma_points()
+        # transform sigma points to measurement space
+        for i in range(2*self.dim_x + 1):
+            Z_sigma[:3, i] = self.measurement_model(self.sigma_points[:3, i])
+        Z_sigma[3:, :] = (Z_sigma[:3, :] - Z_sigma_old[:3, :])/dt
+
         # mean of predicted measurement
         z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
 
@@ -203,9 +209,9 @@ class UKF:
         self.gt_car[8] = data.pose.pose.orientation.z
         self.gt_car[9] = data.pose.pose.orientation.w
 
-        # init state    # TODO: Init state
+        # init state vector
         if self.state_initialized is False:
-            self.x[0:6] = self.gt_car[0:6]
+            self.x = self.gt_car[0:6]
             self.state_car_initialized = True
             if self.state_drone_initialized is True:
                 self.state_initialized = True
@@ -213,13 +219,26 @@ class UKF:
     def depth_cam_callback(self, data):
         if self.state_initialized is False:
             return
-        # get depth camera data
-        self.dcam[0] = data.point.x     # u
-        self.dcam[1] = data.point.y     # v
-        self.dcam[2] = data.point.z     # d
+        
+        dt = rospy.Time.now() - self.prev_time
 
-        self.prediction_step()
-        self.update_step()
+        # Get new depth camera data
+        u = data.point.x
+        v = data.point.y
+        d = data.point.z
+        # Calculate change in measurement
+        u_dot = (u - self.dcam[0])/dt
+        v_dot = (v - self.dcam[1])/dt
+        d_dot = (d - self.dcam[2])/dt
+
+        # Update measurement data
+        self.dcam = np.array([u, v, d, u_dot, v_dot, d_dot])
+        
+        self.prev_time = rospy.Time.now()
+
+        # Call the UKF algorithm
+        self.prediction_step(dt)
+        self.update_step(dt)
 
     def publish_data(self):
         odom = Odometry()
