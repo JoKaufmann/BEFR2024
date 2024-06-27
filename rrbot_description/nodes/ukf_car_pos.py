@@ -24,8 +24,6 @@ class UKF:
     def __init__(self):
         # Initialization flags
         self.state_initialized = False
-        self.state_car_initialized = False
-        self.state_drone_initialized = False
 
         # Initialize camera and measurement vector
         # /rrbot/camera/SigmaX: 4.0
@@ -37,7 +35,7 @@ class UKF:
         self.depth_factor = 1                       # depth factor
         self.cam_offset = np.zeros(3)               # camera offset in drone frame
         # camera direction on robot as quaternion from [roll, pitch, yaw]
-        self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/4, 0)
+        self.cam_dir = tf.transformations.quaternion_from_euler(0, 0, 0)     # ToDo: change pitch back to pi/4, also in world file
         self.dcam = np.zeros(6)                     # target position and velocity in camera frame
 
         # Sigma point parameters
@@ -194,13 +192,6 @@ class UKF:
         self.gt_drone[8] = data.pose.pose.orientation.z
         self.gt_drone[9] = data.pose.pose.orientation.w
 
-        if self.state_initialized is False:
-            self.x[6:9] = self.gt_drone[0:3]
-            self.x[9:14] = self.gt_drone[6:10]
-            self.state_drone_initialized = True
-            if self.state_car_initialized is True:
-                self.state_initialized = True
-
     def groundtruth_car_callback(self, data):
         # position x,y,z
         self.gt_car[0] = data.pose.pose.position.x
@@ -221,9 +212,7 @@ class UKF:
         # init state vector
         if self.state_initialized is False:
             self.x = self.gt_car[0:6]
-            self.state_car_initialized = True
-            if self.state_drone_initialized is True:
-                self.state_initialized = True
+            self.state_initialized = True
 
     def depth_cam_callback(self, data):
         if self.state_initialized is False:
@@ -279,6 +268,6 @@ class UKF:
         self.pub.publish(odom)
 
 if __name__ == '__main__':
-    rospy.init_node('ukf_node_2')
+    rospy.init_node('ukf_node')
     ukf = UKF()
     rospy.spin()
