@@ -74,12 +74,13 @@ def handle_imu(msg):
     (r,p,y) = tf.transformations.euler_from_quaternion([q.x,q.y,q.z,q.w])
     Angular=np.array([msg.angular_velocity.y,msg.angular_velocity.x,-msg.angular_velocity.z]) # convert from ENU to NED
 
-    Attitude_P=10.0 # proportional factor
-    roll_max=40.0*math.pi/180.0
-    pitch_max=40.0*math.pi/180.0
-    yaw_max=180.0*math.pi/180.0
+    Attitude_P = 10.0 # proportional factor
+    Yaw_P = 1.0 # proportional factor
+    roll_max = 40.0*math.pi/180.0
+    pitch_max = 40.0*math.pi/180.0
+    yaw_max = 180.0*math.pi/180.0
 
-    if (throttle<0.95):
+    if (throttle<0.9):
         Setpoints=np.array([Attitude_P*(roll*roll_max - r), Attitude_P*(pitch*pitch_max - p),yaw*yaw_max])
         mythrottle=throttle
     else:
@@ -88,6 +89,7 @@ def handle_imu(msg):
         if FOLLOW_CAR:
             waypoint = CAR_POS
             waypoint[2] = -10.0
+            myyaw = math.atan2(waypoint[0]-pos[0], waypoint[1]-pos[1])
         else:
             if np.linalg.norm( waypoints[current_waypoint] - pos )<0.5:
                 current_waypoint = (current_waypoint + 1) % 4
@@ -102,7 +104,10 @@ def handle_imu(msg):
 
         mypitch=-math.cos(y)*Oo[0]-math.sin(y)*Oo[1]
         myroll=-math.sin(y)*Oo[0]+math.cos(y)*Oo[1]
-        Setpoints=np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p),yaw*yaw_max])
+        if FOLLOW_CAR:
+            Setpoints = np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p), Yaw_P*(myyaw*yaw_max - y)])
+        else:
+            Setpoints=np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p),yaw*yaw_max])
         mythrottle=hover_thrust-Oo[2]
 
     #PI loop

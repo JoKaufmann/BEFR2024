@@ -217,20 +217,9 @@ class UKF:
     def depth_cam_callback(self, data):
         if self.state_initialized is False:
             return
-        # get depth camera data
-        self.dcam[0] = data.point.x     # u
-        self.dcam[1] = data.point.y     # v
-        self.dcam[2] = data.point.z     # d
-
-        # get current time
-        current_time = rospy.Time.now()
-        dt = (current_time - self.prev_time).to_sec()
-        self.prev_time = current_time
-
-        self.prediction_step(dt)
-        self.update_step()
-        
-        dt = rospy.Time.now() - self.prev_time
+        # Calculate time difference       
+        dt = (rospy.Time.now() - self.prev_time).to_sec()
+        self.prev_time = rospy.Time.now()
 
         # Get new depth camera data
         u = data.point.x
@@ -244,8 +233,6 @@ class UKF:
         # Update measurement data
         self.dcam = np.array([u, v, d, u_dot, v_dot, d_dot])
         
-        self.prev_time = rospy.Time.now()
-
         # Call the UKF algorithm
         self.prediction_step(dt)
         self.update_step(dt)
