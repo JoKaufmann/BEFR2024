@@ -56,7 +56,7 @@
   <node ns="/rrbot" name="camera" pkg="rrbot_description" type="fake_visual_detector" respawn="false" output="screen">
     <remap from="camera" to="position_groundtruth" />
     <remap from="target" to="/car/position_groundtruth" />
-    <param name="pitch" value="$(eval PI / 2 )" />
+    <param name="pitch" value="$(eval PI / 4 )" />
     <param name="f" value="300.0" />
     <param name="SigmaX" value="4.0" />
     <param name="SigmaY" value="4.0" />
