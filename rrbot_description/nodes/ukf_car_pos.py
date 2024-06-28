@@ -35,7 +35,7 @@ class UKF:
         self.depth_factor = 1                       # depth factor
         self.cam_offset = np.zeros(3)               # camera offset in drone frame
         # camera direction on robot as quaternion from [roll, pitch, yaw]
-        self.cam_dir = tf.transformations.quaternion_from_euler(0, 0, 0)     # ToDo: change pitch back to pi/4, also in world file
+        self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/2, 0)     # ToDo: change pitch back to pi/4, also in world file
         self.dcam = np.zeros(6)                     # target position and velocity in camera frame
 
         # Sigma point parameters

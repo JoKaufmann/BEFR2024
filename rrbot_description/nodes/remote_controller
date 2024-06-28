@@ -87,7 +87,7 @@ def handle_imu(msg):
         waypoints=np.array([[0.,0.,-6.],[6.,0.,-6.],[6.,6.,-6.],[0.,6.,-6]])
         if FOLLOW_CAR:
             waypoint = CAR_POS
-            waypoint[2] = -6.0
+            waypoint[2] = -10.0
         else:
             if np.linalg.norm( waypoints[current_waypoint] - pos )<0.5:
                 current_waypoint = (current_waypoint + 1) % 4
