@@ -59,15 +59,16 @@ class UKF:
         self.x = np.zeros(self.dim_x)       # (target_pos, target_vel)
 
         # Initialize covariance matrix
-        self.Sigma = np.eye(self.dim_x) #TODO: Define Covariance
+        self.Sigma = np.eye(self.dim_x)*1e-3 #TODO: Define Covariance
         self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))   # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
-        self.R = np.eye(self.dim_x) #TODO: Define process noise
-        self.Q = np.eye(self.dim_x) #TODO: Define measurement noise
+        self.R = np.eye(self.dim_x)*1e-3 #TODO: Define process noise
+        self.Q = np.eye(self.dim_x)*1e-3 #TODO: Define measurement noise
 
         # Set initial timestamp
-        self.prev_time = rospy.Time.now()
+        #? currently done in groundtruth_car_callback once the first groundtruth data is received
+        # self.prev_time = rospy.Time.now()
 
         # Initialize subscriber
         rospy.Subscriber("rrbot/fake_detection", PointStamped, self.depth_cam_callback)
@@ -89,8 +90,16 @@ class UKF:
         for i in range(2*self.dim_x + 1):
             sigma_points_pred[:, i] = self.state_transition(self.sigma_points[:, i], dt)
         
+        print("Sigma points:")
+        print(sigma_points_pred)
+        print("\n")
+
         # Compute predicted mean
         self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
+
+        print("X:")
+        print(self.x)
+        print("\n")
 
         # Compute predicted covariance
         self.Sigma = np.zeros((self.dim_x, self.dim_x))
@@ -103,15 +112,17 @@ class UKF:
             return
         
         # Initialize sigma points in measurement space
-        Z_sigma = np.zeros((6, 2*self.dim_x + 1))
         Z_sigma_old = np.zeros((3, 2*self.dim_x + 1))
+
         # transform old sigma points to measurement space
         for i in range(2*self.dim_x + 1):
             Z_sigma_old[:, i] = self.measurement_model(self.sigma_points[:3, i])
+
         # get new sigma points from pred. state and state covariance
         self.get_sigma_points()
+
         # transform sigma points to measurement space
-        Z_sigma = np.zeros((3, 2*self.dim_x + 1))
+        Z_sigma = np.zeros((6, 2*self.dim_x + 1))
         for i in range(2*self.dim_x + 1):
             Z_sigma[:3, i] = self.measurement_model(self.sigma_points[:3, i])
         Z_sigma[3:, :] = (Z_sigma[:3, :] - Z_sigma_old[:3, :])/dt
@@ -146,9 +157,18 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
+        # print("state transition model: prior x:")
+        # print(x[0:3])
+        # print("\n")
+        # print("dt:")
+        # print(dt)
+        # print("\n")
         pos_pred = x[0:3] + dt*x[3:6]
         vel_pred = x[3:6]               # assumption of constant velocity
-        return np.vstack((pos_pred, vel_pred))
+        # print("state transition model: predicted x:")
+        # print(pos_pred)
+        # print("\n")
+        return np.concatenate((pos_pred, vel_pred))
 
     def measurement_model(self, x: np.array) -> np.array:
         ''' Measurement model for camera
@@ -171,7 +191,16 @@ class UKF:
         
     def get_sigma_points(self):
         self.sigma_points[:, 0] = self.x
+        print("X:")
+        print(self.sigma_points[:, 0])
+        print("\n")
+        print("Sigma:")
+        print(self.Sigma)
+        print("\n")
         L = np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma
+        print("L:")
+        print(L)
+        print("\n")
         self.sigma_points[:, 1:1+self.dim_x] = self.x + self.gamma*L
         self.sigma_points[:, 1+self.dim_x:] = self.x - self.gamma*L
 
@@ -213,13 +242,15 @@ class UKF:
         if self.state_initialized is False:
             self.x = self.gt_car[0:6]
             self.state_initialized = True
+            self.prev_time = data.header.stamp.secs
 
     def depth_cam_callback(self, data):
         if self.state_initialized is False:
             return
-        # Calculate time difference       
-        dt = (rospy.Time.now() - self.prev_time).to_sec()
-        self.prev_time = rospy.Time.now()
+        # Calculate time difference
+        timestamp = data.header.stamp.secs + data.header.stamp.nsecs*1e-9
+        dt = (timestamp - self.prev_time)
+        self.prev_time = timestamp
 
         # Get new depth camera data
         u = data.point.x
