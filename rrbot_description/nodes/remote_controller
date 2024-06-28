@@ -12,7 +12,8 @@ import math
 # using ekf or groundtruth for waypooint navigation
 STATE = 'groundtruth'
 # STATE = 'ekf'
-FOLLOW_CAR = True
+FOLLOW_CAR = False
+MIDDLE_HOVER = True
 CAR_POS = np.array([0.,0.,0.])
 
 throttle=0.0
@@ -79,7 +80,7 @@ def handle_imu(msg):
     pitch_max=40.0*math.pi/180.0
     yaw_max=180.0*math.pi/180.0
 
-    if (throttle<0.95):
+    if (throttle<0.1):
         Setpoints=np.array([Attitude_P*(roll*roll_max - r), Attitude_P*(pitch*pitch_max - p),yaw*yaw_max])
         mythrottle=throttle
     else:
@@ -88,6 +89,8 @@ def handle_imu(msg):
         if FOLLOW_CAR:
             waypoint = CAR_POS
             waypoint[2] = -10.0
+        elif MIDDLE_HOVER:
+            waypoint = np.array([0.,-4.,-15.])
         else:
             if np.linalg.norm( waypoints[current_waypoint] - pos )<0.5:
                 current_waypoint = (current_waypoint + 1) % 4
