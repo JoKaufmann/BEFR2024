@@ -66,10 +66,13 @@ def make_detection():
 
     pos = tarpos - campos
     pos = qv_mult(qv_inv(camdir),pos)
-
+    
+    rospy.loginfo(f"Cam direction: {tf.transformations.euler_from_quaternion(camdir)}")
+    rospy.loginfo(f"Target position in cam frame: {pos}")
     #print(pos)
     if pos[0]<=0:
         # object behind camera
+        rospy.loginfo("Fake Detection: Object behind camera")
         return None
     else:
         size=np.array([640.,480.])
@@ -90,6 +93,7 @@ def make_detection():
         v=(-f*pos[2]/pos[0])+pp[1]
         if (u<0 or v<0 or u>=size[0] or v>=size[1]):
             # object outside of camera FOV
+            rospy.loginfo("Fake Detection: Object outside of camera FOV")
             return None
 
         #noise
@@ -117,7 +121,7 @@ def make_detection():
 
 if __name__ == '__main__':
     rospy.init_node('camera')
-    pub=rospy.Publisher('fake_detection',geometry_msgs.msg.PointStamped, queue_size=3)
+    pub=rospy.Publisher('fake_detection',geometry_msgs.msg.PointStamped, queue_size=10)
 
     # assume camera at 0,0,0 if camera is never received
     msg=nav_msgs.msg.Odometry()
