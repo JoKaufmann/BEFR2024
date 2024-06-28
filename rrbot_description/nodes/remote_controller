@@ -12,8 +12,8 @@ import math
 # using ekf or groundtruth for waypooint navigation
 STATE = 'groundtruth'
 # STATE = 'ekf'
-FOLLOW_CAR = False
-MIDDLE_HOVER = True
+FOLLOW_CAR = True
+MIDDLE_HOVER = False
 CAR_POS = np.array([0.,0.,0.])
 
 throttle=0.0
@@ -75,8 +75,8 @@ def handle_imu(msg):
     (r,p,y) = tf.transformations.euler_from_quaternion([q.x,q.y,q.z,q.w])
     Angular=np.array([msg.angular_velocity.y,msg.angular_velocity.x,-msg.angular_velocity.z]) # convert from ENU to NED
 
-    Attitude_P = 10.0 # proportional factor
-    Yaw_P = 1.0 # proportional factor
+    Attitude_P = 10.0   # proportional factor
+    Yaw_P = 5           # proportional factor for yaw controller
     roll_max = 40.0*math.pi/180.0
     pitch_max = 40.0*math.pi/180.0
     yaw_max = 180.0*math.pi/180.0
@@ -88,9 +88,19 @@ def handle_imu(msg):
         hover_thrust=0.7
         waypoints=np.array([[0.,0.,-6.],[6.,0.,-6.],[6.,6.,-6.],[0.,6.,-6]])
         if FOLLOW_CAR:
-            waypoint = CAR_POS
-            waypoint[2] = -10.0
-            myyaw = math.atan2(waypoint[0]-pos[0], waypoint[1]-pos[1])
+            # get direction to follow car
+            yaw_soll = np.arctan2(CAR_POS[1] - pos[1], CAR_POS[0] - pos[0]) - np.pi
+            yaw_soll = (yaw_soll + np.pi) % (2 * np.pi) - np.pi/2
+            yaw_error = yaw_soll - y
+            yaw_error = (yaw_error + np.pi) % (2 * np.pi) - np.pi
+            yaw_cmd = np.clip(Yaw_P*yaw_error, -yaw_max, yaw_max)
+            # fly behind car
+            height_soll = 10            # ToDo: change to wanted height
+            cam_pitch = np.pi/4         # ToDo: match to real cam pitch in world.launch
+            cam_pitch -= 3*np.pi/180    # due to lean back of drone additional 3deg
+            dist_to_car = height_soll / np.tan(cam_pitch)
+            waypoint = np.array([CAR_POS[0] - np.sin(yaw_soll)*dist_to_car,CAR_POS[1] - np.cos(yaw_soll)*dist_to_car, -height_soll])
+
         elif MIDDLE_HOVER:
             waypoint = np.array([0.,-4.,-15.])
         else:
@@ -108,9 +118,9 @@ def handle_imu(msg):
         mypitch=-math.cos(y)*Oo[0]-math.sin(y)*Oo[1]
         myroll=-math.sin(y)*Oo[0]+math.cos(y)*Oo[1]
         if FOLLOW_CAR:
-            Setpoints = np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p), Yaw_P*(myyaw*yaw_max - y)])
+            Setpoints = np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p), yaw_cmd])
         else:
-            Setpoints=np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p),yaw*yaw_max])
+            Setpoints = np.array([Attitude_P*(myroll*roll_max - r), Attitude_P*(mypitch*pitch_max - p),yaw*yaw_max])
         mythrottle=hover_thrust-Oo[2]
 
     #PI loop
