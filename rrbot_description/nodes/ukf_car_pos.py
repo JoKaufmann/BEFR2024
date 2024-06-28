@@ -53,6 +53,10 @@ class UKF:
         for i in range(1, 2*self.dim_x + 1):
             self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
         
+        # ToDo: delete, only for debugging
+        self.Wm = np.ones(2*self.dim_x + 1)/(2*self.dim_x + 1)
+        self.Wm[0] = 1
+
         # Initialize state vector
         self.gt_car = np.zeros(10)
         self.gt_drone = np.zeros(10)
@@ -131,13 +135,13 @@ class UKF:
         z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
 
         # covariance of predicted measurement
-        S = np.zeros((3, 3))
+        S = np.zeros((self.dim_x, self.dim_x))
         for i in range(2*self.dim_x + 1):
             S += self.Wc[i]*np.outer(Z_sigma[:, i]-z_sigma_mean, Z_sigma[:, i]-z_sigma_mean)
         S += self.Q
 
         # cross-covariance between state and measurement
-        Sigma_hat = np.zeros((self.dim_x, 3))
+        Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
         
@@ -146,8 +150,8 @@ class UKF:
         K = Sigma_hat/S
         
         # update state and covariance
-        self.x += K*(self.dcam - z_sigma_mean)
-        self.Sigma -= K*S*K.T
+        self.x += K@(self.dcam - z_sigma_mean)
+        self.Sigma -= K@S@K.T
     
     def state_transition(self, x: np.array, dt: float) -> np.array:
         ''' State transition model for target
