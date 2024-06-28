@@ -12,6 +12,8 @@ import math
 # using ekf or groundtruth for waypooint navigation
 STATE = 'groundtruth'
 # STATE = 'ekf'
+FOLLOW_CAR = True
+CAR_POS = np.array([0.,0.,0.])
 
 throttle=0.0
 pitch=0.0
@@ -83,11 +85,16 @@ def handle_imu(msg):
     else:
         hover_thrust=0.7
         waypoints=np.array([[0.,0.,-6.],[6.,0.,-6.],[6.,6.,-6.],[0.,6.,-6]])
-        if np.linalg.norm( waypoints[current_waypoint] - pos )<0.5:
-            current_waypoint = (current_waypoint + 1) % 4
+        if FOLLOW_CAR:
+            waypoint = CAR_POS
+            waypoint[2] = -6.0
+        else:
+            if np.linalg.norm( waypoints[current_waypoint] - pos )<0.5:
+                current_waypoint = (current_waypoint + 1) % 4
+                waypoint = waypoints[current_waypoint]
         VelKp = 2.0
         VelMax = 2.0
-        VelS = np.clip( VelKp * ( waypoints[current_waypoint] - pos), -VelMax, VelMax)
+        VelS = np.clip( VelKp * ( waypoint - pos), -VelMax, VelMax)
         Eo=VelS-vel
         Po=Eo*OPI_kp
         OPI_i=np.clip( OPI_i + Eo * OPI_ki, -OPI_lim, OPI_lim)
@@ -113,6 +120,11 @@ def handle_imu(msg):
     pub[2].publish(float(motors[2]))
     pub[3].publish(float(motors[3]))
 
+def handle_car_state(msg):
+    CAR_POS[0]= msg.pose.pose.position.y
+    CAR_POS[1]= msg.pose.pose.position.x
+    CAR_POS[2]=-msg.pose.pose.position.z
+
 if __name__ == '__main__':
     rospy.init_node('remote_controller')
     pub.append(rospy.Publisher('motor0_velocity_controller/command',std_msgs.msg.Float64, queue_size=3))
@@ -132,4 +144,8 @@ if __name__ == '__main__':
     rospy.Subscriber('sim_imu',
                      sensor_msgs.msg.Imu,
                      handle_imu)
+
+    # get car position
+    rospy.Subscriber('/car/position_groundtruth', nav_msgs.msg.Odometry, handle_car_state)
+        
     rospy.spin()
