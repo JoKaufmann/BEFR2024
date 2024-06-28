@@ -35,7 +35,7 @@ class UKF:
         self.depth_factor = 1                       # depth factor
         self.cam_offset = np.zeros(3)               # camera offset in drone frame
         # camera direction on robot as quaternion from [roll, pitch, yaw]
-        self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/2, 0)     # ToDo: change pitch back to pi/4, also in world file
+        self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/4, 0)     # ToDo: change pitch back to pi/4, also in world file
         self.dcam = np.zeros(6)                     # target position and velocity in camera frame
 
         # Sigma point parameters
@@ -53,10 +53,6 @@ class UKF:
         for i in range(1, 2*self.dim_x + 1):
             self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
         
-        # ToDo: delete, only for debugging
-        self.Wm = np.ones(2*self.dim_x + 1)/(2*self.dim_x + 1)
-        self.Wm[0] = 1
-
         # Initialize state vector
         self.gt_car = np.zeros(10)
         self.gt_drone = np.zeros(10)
@@ -194,19 +190,10 @@ class UKF:
         return np.array([u, v, d])
         
     def get_sigma_points(self):
-        self.sigma_points[:, 0] = self.x
-        print("X:")
-        print(self.sigma_points[:, 0])
-        print("\n")
-        print("Sigma:")
-        print(self.Sigma)
-        print("\n")
-        L = np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma
-        print("L:")
-        print(L)
-        print("\n")
-        self.sigma_points[:, 1:1+self.dim_x] = self.x + self.gamma*L
-        self.sigma_points[:, 1+self.dim_x:] = self.x - self.gamma*L
+        self.sigma_points = np.tile(self.x, (self.dim_x*2+1, 1)).T
+        L = self.gamma*np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        self.sigma_points[:, 1:1+self.dim_x] += L
+        self.sigma_points[:, 1+self.dim_x:] -= L
 
     def groundtruth_drone_callback(self, data):
         # position x,y,z
