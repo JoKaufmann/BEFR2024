@@ -45,7 +45,7 @@ class UKF:
         self.beta = 2.0 # 2.0 is optimal for Gaussian priors
         self.kappa = self.dim_x - 3
         self.lambda_ = self.alpha**2 * (self.dim_x + self.kappa) - self.dim_x
-        self.gamma = np.sqrt(self.dim_x + self.lambda_)
+        self.gamma_sq = self.dim_x + self.lambda_
         # Sigma point weights
         self.Wm = np.zeros(2*self.dim_x + 1)
         self.Wc = np.zeros(2*self.dim_x + 1)
@@ -207,7 +207,7 @@ class UKF:
         # print("Sigma:")
         # print(self.Sigma)
         # print("\n")
-        L = self.gamma*np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        L = np.diag(np.diag(np.linalg.cholesky(self.gamma_sq*self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
         # print("L:")
         # print(L)
         # print("\n")
@@ -302,7 +302,7 @@ class UKF:
         self.pub.publish(odom)
 
 if __name__ == '__main__':
-    np.set_printoptions(precision=2)
+    np.set_printoptions(precision=4)
     rospy.init_node('ukf_node')
     ukf = UKF()
     rospy.spin()
