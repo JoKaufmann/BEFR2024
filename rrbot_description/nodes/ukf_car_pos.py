@@ -68,7 +68,7 @@ class UKF:
         
         # Initialize noise matrices
         self.R = np.eye(self.dim_x)                             #TODO: Define process noise
-        self.Q = np.diag(np.array([4., 4., 0.25, 0, 0, 0]))     #TODO: Define measurement noise
+        self.Q = np.diag(np.array([4., 4., 0.25, 1, 1, 1]))     #TODO: Define measurement noise
 
         # Set initial timestamp
         #? currently done in groundtruth_car_callback once the first groundtruth data is received
@@ -80,7 +80,7 @@ class UKF:
         rospy.Subscriber("car/position_groundtruth", Odometry, self.groundtruth_car_callback)
         
         # Initialize publisher
-        self.pub = rospy.Publisher('car/pos_estimate', PointStamped, queue_size=10)
+        self.pub = rospy.Publisher('car/pos_estimate', Odometry, queue_size=10)
     
     def prediction_step(self, dt):
         if self.state_initialized is False:
@@ -97,8 +97,8 @@ class UKF:
             sigma_points_pred[:, i] = self.state_transition(self.sigma_points[:, i], dt)
 
         # Compute predicted mean
-        # self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
-        self.x = np.average(sigma_points_pred, axis=1, weights=self.Wm)
+        self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
+        # self.x = np.average(sigma_points_pred, axis=1, weights=self.Wm)
 
         # Compute predicted covariance
         self.Sigma = np.zeros((self.dim_x, self.dim_x))
@@ -260,7 +260,7 @@ class UKF:
         # Call the UKF algorithm
         self.prediction_step(dt)
         self.update_step(dt)
-        # self.publish_data()
+        self.publish_data()
 
     def publish_data(self):
         odom = Odometry()
