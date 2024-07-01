@@ -35,7 +35,7 @@ class UKF:
         self.depth_factor = 1                       # depth factor
         self.cam_offset = np.zeros(3)               # camera offset in drone frame
         # camera direction on robot as quaternion from [roll, pitch, yaw]
-        self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/2, 0)     # ToDo: change pitch back to pi/4, also in world file
+        self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/4, 0)     # ToDo: change pitch back to pi/4, also in world file
         self.dcam = np.zeros(6)                     # target position and velocity in camera frame
 
         # Sigma point parameters
@@ -131,13 +131,13 @@ class UKF:
         z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
 
         # covariance of predicted measurement
-        S = np.zeros((3, 3))
+        S = np.zeros((self.dim_x, self.dim_x))
         for i in range(2*self.dim_x + 1):
             S += self.Wc[i]*np.outer(Z_sigma[:, i]-z_sigma_mean, Z_sigma[:, i]-z_sigma_mean)
         S += self.Q
 
         # cross-covariance between state and measurement
-        Sigma_hat = np.zeros((self.dim_x, 3))
+        Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
         
@@ -146,8 +146,8 @@ class UKF:
         K = Sigma_hat/S
         
         # update state and covariance
-        self.x += K*(self.dcam - z_sigma_mean)
-        self.Sigma -= K*S*K.T
+        self.x += K@(self.dcam - z_sigma_mean)
+        self.Sigma -= K@S@K.T
     
     def state_transition(self, x: np.array, dt: float) -> np.array:
         ''' State transition model for target
@@ -190,19 +190,10 @@ class UKF:
         return np.array([u, v, d])
         
     def get_sigma_points(self):
-        self.sigma_points[:, 0] = self.x
-        print("X:")
-        print(self.sigma_points[:, 0])
-        print("\n")
-        print("Sigma:")
-        print(self.Sigma)
-        print("\n")
-        L = np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma
-        print("L:")
-        print(L)
-        print("\n")
-        self.sigma_points[:, 1:1+self.dim_x] = self.x + self.gamma*L
-        self.sigma_points[:, 1+self.dim_x:] = self.x - self.gamma*L
+        self.sigma_points = np.tile(self.x, (self.dim_x*2+1, 1)).T
+        L = self.gamma*np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        self.sigma_points[:, 1:1+self.dim_x] += L
+        self.sigma_points[:, 1+self.dim_x:] -= L
 
     def groundtruth_drone_callback(self, data):
         # position x,y,z
