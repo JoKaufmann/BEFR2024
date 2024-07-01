@@ -85,20 +85,27 @@ class UKF:
         # Compute sigma points
         self.get_sigma_points()
 
+        print("Sigma points:")
+        print(self.sigma_points)
+        print("\n")
+
         # Calculate transition of sigma points through state transition model
         sigma_points_pred = np.zeros((self.dim_x, 2*self.dim_x + 1))
         for i in range(2*self.dim_x + 1):
             sigma_points_pred[:, i] = self.state_transition(self.sigma_points[:, i], dt)
         
-        print("Sigma points:")
+        print("Sigma points pred:")
         print(sigma_points_pred)
         print("\n")
 
         # Compute predicted mean
         self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
 
-        print("X:")
+        print("X prediction:")
         print(self.x)
+        print("\n")
+        print("X groundtruth:")
+        print(self.gt_car[0:6])
         print("\n")
 
         # Compute predicted covariance
@@ -121,10 +128,15 @@ class UKF:
         # get new sigma points from pred. state and state covariance
         self.get_sigma_points()
 
-        # transform sigma points to measurement space
+        print("Sigma points b4 upd:")
+        print(self.sigma_points)
+        print("\n")
+
+        # transform position sigma points to measurement space
         Z_sigma = np.zeros((6, 2*self.dim_x + 1))
         for i in range(2*self.dim_x + 1):
             Z_sigma[:3, i] = self.measurement_model(self.sigma_points[:3, i])
+        # calculate velocity sigma points
         Z_sigma[3:, :] = (Z_sigma[:3, :] - Z_sigma_old[:3, :])/dt
 
         # mean of predicted measurement
@@ -140,7 +152,6 @@ class UKF:
         Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
-        
 
         # Kalman gain
         K = Sigma_hat/S
@@ -148,6 +159,13 @@ class UKF:
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
         self.Sigma -= K@S@K.T
+
+        print("X update:")
+        print(self.x)
+        print("\n")
+        print("X groundtruth:")
+        print(self.gt_car[0:6])
+        print("\n")
     
     def state_transition(self, x: np.array, dt: float) -> np.array:
         ''' State transition model for target
@@ -157,17 +175,8 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        # print("state transition model: prior x:")
-        # print(x[0:3])
-        # print("\n")
-        # print("dt:")
-        # print(dt)
-        # print("\n")
         pos_pred = x[0:3] + dt*x[3:6]
         vel_pred = x[3:6]               # assumption of constant velocity
-        # print("state transition model: predicted x:")
-        # print(pos_pred)
-        # print("\n")
         return np.concatenate((pos_pred, vel_pred))
 
     def measurement_model(self, x: np.array) -> np.array:
@@ -191,7 +200,16 @@ class UKF:
         
     def get_sigma_points(self):
         self.sigma_points = np.tile(self.x, (self.dim_x*2+1, 1)).T
+        # print("X:")
+        # print(self.sigma_points[:, 0])
+        # print("\n")
+        # print("Sigma:")
+        # print(self.Sigma)
+        # print("\n")
         L = self.gamma*np.diag(np.diag(np.linalg.cholesky(self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        # print("L:")
+        # print(L)
+        # print("\n")
         self.sigma_points[:, 1:1+self.dim_x] += L
         self.sigma_points[:, 1+self.dim_x:] -= L
 
@@ -277,6 +295,7 @@ class UKF:
         self.pub.publish(odom)
 
 if __name__ == '__main__':
+    np.set_printoptions(precision=2)
     rospy.init_node('ukf_node')
     ukf = UKF()
     rospy.spin()
