@@ -41,9 +41,9 @@ class UKF:
 
         # Sigma point parameters
         self.dim_x = 6
-        self.alpha = 1e-3 # suggested by Wan and van der Merwe
-        self.beta = 2.0 # 2.0 is optimal for Gaussian priors
-        self.kappa = 0.0
+        self.alpha = 1e-3   # suggested by Wan and van der Merwe
+        self.beta = 2.0     # 2.0 is optimal for Gaussian priors
+        self.kappa = 0
         self.lambda_ = self.alpha**2 * (self.dim_x + self.kappa) - self.dim_x
         self.gamma = np.sqrt(self.dim_x + self.lambda_)
         # Sigma point weights
@@ -63,12 +63,12 @@ class UKF:
         self.x = np.zeros(self.dim_x)       # (target_pos, target_vel)
 
         # Initialize covariance matrix
-        self.Sigma = np.eye(self.dim_x)                         #TODO: Define Covariance
-        self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))   # dimension len(x) x 2*len(x) + 1
+        self.Sigma = np.eye(self.dim_x)                             #TODO: Define Covariance
+        self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))  # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
-        self.R = np.eye(self.dim_x)                             #TODO: Define process noise
-        self.Q = np.diag(np.array([4., 4., 0.25, 0, 0, 0]))     #TODO: Define measurement noise
+        self.R = np.diag(np.array([1, 1., 1, 1000, 1000, 100]))      #TODO: Define process noise
+        self.Q = np.diag(np.array([4, 4., 0.25, 4/0.1, 4/0.1, 0.25/0.1]))      #TODO: Define measurement noise
 
         # Set initial timestamp
         #? currently done in groundtruth_car_callback once the first groundtruth data is received
@@ -80,7 +80,7 @@ class UKF:
         rospy.Subscriber("car/position_groundtruth", Odometry, self.groundtruth_car_callback)
         
         # Initialize publisher
-        self.pub = rospy.Publisher('car/pos_estimate', PointStamped, queue_size=10)
+        self.pub = rospy.Publisher('car/pos_estimate', Odometry, queue_size=10)
     
     def prediction_step(self, dt):
         if self.state_initialized is False:
@@ -93,18 +93,10 @@ class UKF:
         sigma_points_pred = np.zeros((self.dim_x, 2*self.dim_x + 1))
         for i in range(2*self.dim_x + 1):
             sigma_points_pred[:, i] = self.state_transition(self.sigma_points[:, i], dt)
-        
-        print("Sigma points:")
-        print(sigma_points_pred)
-        print("\n")
 
         # Compute predicted mean
-        # self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
-        self.x = np.average(sigma_points_pred, axis=1, weights=self.Wm)
-
-        print("X:")
-        print(self.x)
-        print("\n")
+        self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
+        # self.x = np.average(sigma_points_pred, axis=1, weights=self.Wm)
 
         # Compute predicted covariance
         self.Sigma = np.zeros((self.dim_x, self.dim_x))
@@ -133,8 +125,8 @@ class UKF:
         Z_sigma[3:, :] = (Z_sigma[:3, :] - Z_sigma_old[:3, :])/dt
 
         # mean of predicted measurement
-        # z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
-        z_sigma_mean = np.average(Z_sigma, axis=1, weights=self.Wm)
+        z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
+        # z_sigma_mean = np.average(Z_sigma, axis=1, weights=self.Wm)
 
         # covariance of predicted measurement
         S = np.zeros((self.dim_x, self.dim_x))
@@ -146,11 +138,10 @@ class UKF:
         Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
-        
 
         # Kalman gain
         K = Sigma_hat*np.linalg.inv(S)
-        
+        print(f'K: {K}\n')
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
         self.Sigma -= K@S@K.T
@@ -163,17 +154,9 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        # print("state transition model: prior x:")
-        # print(x[0:3])
-        # print("\n")
-        # print("dt:")
-        # print(dt)
-        # print("\n")
         pos_pred = x[0:3] + dt*x[3:6]
         vel_pred = x[3:6]               # assumption of constant velocity
-        # print("state transition model: predicted x:")
-        # print(pos_pred)
-        # print("\n")
+
         return np.concatenate((pos_pred, vel_pred))
 
     def measurement_model(self, x: np.array) -> np.array:
@@ -248,7 +231,6 @@ class UKF:
         timestamp = data.header.stamp.secs + data.header.stamp.nsecs*1e-9
         dt = (timestamp - self.prev_time)
         self.prev_time = timestamp
-
         # Get new depth camera data
         u = data.point.x
         v = data.point.y
@@ -270,6 +252,9 @@ class UKF:
         # Call the UKF algorithm
         self.prediction_step(dt)
         self.update_step(dt)
+        print(f'x:    {self.x}\n')
+        print(f'x_gt: {self.gt_car}\n')
+        self.publish_data()
 
     def publish_data(self):
         odom = Odometry()
@@ -289,6 +274,7 @@ class UKF:
         self.pub.publish(odom)
 
 if __name__ == '__main__':
+    np.set_printoptions(precision=4)
     rospy.init_node('ukf_node')
     ukf = UKF()
     rospy.spin()
