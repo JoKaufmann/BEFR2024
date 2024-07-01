@@ -43,16 +43,16 @@ class UKF:
         self.dim_x = 6
         self.alpha = 1e-3 # suggested by Wan and van der Merwe
         self.beta = 2.0 # 2.0 is optimal for Gaussian priors
-        self.kappa = self.dim_x - 3
+        self.kappa = 0
         self.lambda_ = self.alpha**2 * (self.dim_x + self.kappa) - self.dim_x
         self.gamma = np.sqrt(self.dim_x + self.lambda_)
         # Sigma point weights
-        self.Wm = np.zeros(2*self.dim_x + 1)
-        self.Wc = np.zeros(2*self.dim_x + 1)
-        self.Wm[0] = self.lambda_ / (self.dim_x + self.lambda_)
-        self.Wc[0] = self.lambda_ / (self.dim_x + self.lambda_) + (1 - self.alpha**2 + self.beta)
-        for i in range(1, 2*self.dim_x + 1):
-            self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
+        # self.Wm = np.zeros(2*self.dim_x + 1)
+        # self.Wc = np.zeros(2*self.dim_x + 1)
+        # self.Wm[0] = self.lambda_ / (self.dim_x + self.lambda_)
+        # self.Wc[0] = self.lambda_ / (self.dim_x + self.lambda_) + (1 - self.alpha**2 + self.beta)
+        # for i in range(1, 2*self.dim_x + 1):
+        #     self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
         # Todo: check self.wm, for debugging, create pos. weight vector
         self.Wm = np.concatenate((np.array([self.dim_x*2]), np.array([1]*int(self.dim_x*2))))/(self.dim_x*4)
         self.Wc = self.Wm
@@ -67,8 +67,8 @@ class UKF:
         self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))  # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
-        self.R = np.eye(self.dim_x)                             #TODO: Define process noise
-        self.Q = np.diag(np.array([4., 4., 0.25, 1, 1, 1]))     #TODO: Define measurement noise
+        self.R = np.eye(self.dim_x)*2                             #TODO: Define process noise
+        self.Q = np.diag(np.array([4., 4., 0.25, 1, 1, 1]))*10     #TODO: Define measurement noise
 
         # Set initial timestamp
         #? currently done in groundtruth_car_callback once the first groundtruth data is received
@@ -141,19 +141,22 @@ class UKF:
         Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
-        
 
         # Kalman gain
-        K = Sigma_hat*np.linalg.inv(S)
+        K = Sigma_hat@np.linalg.inv(S)
         print(f'K: {K}\n')
+
+        old_x = self.x
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
         self.Sigma -= K@S@K.T
 
-        print("X update:")
-        print(self.x)
-        print("X groundtruth:")
-        print(self.gt_car[0:6])
+        print(f'Diff: {self.x - old_x}\n')
+
+        # print("X update:")
+        # print(self.x)
+        # print("X groundtruth:")
+        # print(self.gt_car[0:6])
     
     def state_transition(self, x: np.array, dt: float) -> np.array:
         ''' State transition model for target
