@@ -67,8 +67,8 @@ class UKF:
         self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))  # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
-        self.R = np.eye(self.dim_x)*2                             #TODO: Define process noise
-        self.Q = np.diag(np.array([4., 4., 0.25, 1, 1, 1]))*10     #TODO: Define measurement noise
+        self.R = np.diag(np.array([1, 1, 1, 1, 1, 1]))*10              #TODO: Define process noise
+        self.Q = np.diag(np.array([4, 4., 0.25, 1, 1, 1]))*0.01          #TODO: Define measurement noise
 
         # Set initial timestamp
         #? currently done in groundtruth_car_callback once the first groundtruth data is received
@@ -141,7 +141,9 @@ class UKF:
         Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
-
+        # print(f'S: {S}\n')
+        print(f'Sigma_hat: {Sigma_hat}\n')
+        
         # Kalman gain
         K = Sigma_hat@np.linalg.inv(S)
         print(f'K: {K}\n')
@@ -166,8 +168,11 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        pos_pred = x[0:3] + dt*x[3:6]
-        vel_pred = x[3:6]               # assumption of constant velocity
+        pos_pred = x[0:3]# + np.random.randn(3)*0.01
+        vel_pred = x[3:6]# + np.random.randn(3)*0.001  # assumption of constant velocity
+        # pos_pred = x[0:3] + dt*x[3:6]
+        # vel_pred = x[3:6]               # assumption of constant velocity
+
         return np.concatenate((pos_pred, vel_pred))
 
     def measurement_model(self, x: np.array) -> np.array:
