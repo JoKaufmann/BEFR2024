@@ -42,7 +42,7 @@ class UKF:
         self.dim_x = 6
         self.alpha = 1e-3 # suggested by Wan and van der Merwe
         self.beta = 2.0 # 2.0 is optimal for Gaussian priors
-        self.kappa = 3-self.dim_x
+        self.kappa = self.dim_x - 3
         self.lambda_ = self.alpha**2 * (self.dim_x + self.kappa) - self.dim_x
         self.gamma = np.sqrt(self.dim_x + self.lambda_)
         # Sigma point weights
