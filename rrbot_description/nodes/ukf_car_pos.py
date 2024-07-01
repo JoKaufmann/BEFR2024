@@ -63,8 +63,8 @@ class UKF:
         self.x = np.zeros(self.dim_x)       # (target_pos, target_vel)
 
         # Initialize covariance matrix
-        self.Sigma = np.eye(self.dim_x)                         #TODO: Define Covariance
-        self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))   # dimension len(x) x 2*len(x) + 1
+        self.Sigma = np.eye(self.dim_x)                             #TODO: Define Covariance
+        self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))  # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
         self.R = np.eye(self.dim_x)                             #TODO: Define process noise
@@ -141,10 +141,11 @@ class UKF:
         Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
+        
 
         # Kalman gain
         K = Sigma_hat*np.linalg.inv(S)
-        
+        print(f'K: {K}\n')
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
         self.Sigma -= K@S@K.T
@@ -238,7 +239,6 @@ class UKF:
         timestamp = data.header.stamp.secs + data.header.stamp.nsecs*1e-9
         dt = (timestamp - self.prev_time)
         self.prev_time = timestamp
-
         # Get new depth camera data
         u = data.point.x
         v = data.point.y
