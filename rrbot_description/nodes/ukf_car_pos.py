@@ -141,19 +141,17 @@ class UKF:
         Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
-        # print(f'S: {S}\n')
-        print(f'Sigma_hat: {Sigma_hat}\n')
         
         # Kalman gain
         K = Sigma_hat@np.linalg.inv(S)
         print(f'K: {K}\n')
 
-        old_x = self.x
+        # old_x = np.copy(self.x)
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
         self.Sigma -= K@S@K.T
 
-        print(f'Diff: {self.x - old_x}\n')
+        # print(f'Diff: {self.x - old_x}\n')
 
         # print("X update:")
         # print(self.x)
@@ -168,8 +166,8 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        pos_pred = x[0:3]# + np.random.randn(3)*0.01
-        vel_pred = x[3:6]# + np.random.randn(3)*0.001  # assumption of constant velocity
+        pos_pred = x[0:3] + np.random.randn(3)*0.01
+        vel_pred = x[3:6] + np.random.randn(3)*0.001  # assumption of constant velocity
         # pos_pred = x[0:3] + dt*x[3:6]
         # vel_pred = x[3:6]               # assumption of constant velocity
 
