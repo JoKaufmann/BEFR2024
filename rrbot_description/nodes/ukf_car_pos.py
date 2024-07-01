@@ -36,6 +36,7 @@ class UKF:
         self.cam_offset = np.zeros(3)               # camera offset in drone frame
         # camera direction on robot as quaternion from [roll, pitch, yaw]
         self.cam_dir = tf.transformations.quaternion_from_euler(0, np.pi/4, 0)     # ToDo: change pitch back to pi/4, also in world file
+        self.dcam_initialized = False
         self.dcam = np.zeros(6)                     # target position and velocity in camera frame
 
         # Sigma point parameters
@@ -59,12 +60,12 @@ class UKF:
         self.x = np.zeros(self.dim_x)       # (target_pos, target_vel)
 
         # Initialize covariance matrix
-        self.Sigma = np.eye(self.dim_x)*1e-3 #TODO: Define Covariance
+        self.Sigma = np.eye(self.dim_x)                         #TODO: Define Covariance
         self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))   # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
-        self.R = np.eye(self.dim_x)*1e-3 #TODO: Define process noise
-        self.Q = np.eye(self.dim_x)*1e-3 #TODO: Define measurement noise
+        self.R = np.eye(self.dim_x)                             #TODO: Define process noise
+        self.Q = np.diag(np.array([4., 4., 0.25, 0, 0, 0]))     #TODO: Define measurement noise
 
         # Set initial timestamp
         #? currently done in groundtruth_car_callback once the first groundtruth data is received
@@ -154,7 +155,7 @@ class UKF:
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
 
         # Kalman gain
-        K = Sigma_hat/S
+        K = Sigma_hat*np.linalg.inv(S)
         
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
@@ -266,9 +267,15 @@ class UKF:
         v = data.point.y
         d = data.point.z
         # Calculate change in measurement
-        u_dot = (u - self.dcam[0])/dt
-        v_dot = (v - self.dcam[1])/dt
-        d_dot = (d - self.dcam[2])/dt
+        if self.dcam_initialized is False:
+            u_dot = 0
+            v_dot = 0
+            d_dot = 0
+            self.dcam_initialized = True
+        else:
+            u_dot = (u - self.dcam[0])/dt
+            v_dot = (v - self.dcam[1])/dt
+            d_dot = (d - self.dcam[2])/dt
 
         # Update measurement data
         self.dcam = np.array([u, v, d, u_dot, v_dot, d_dot])
