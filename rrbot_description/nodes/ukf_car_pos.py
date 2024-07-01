@@ -45,7 +45,7 @@ class UKF:
         self.beta = 2.0 # 2.0 is optimal for Gaussian priors
         self.kappa = self.dim_x - 3
         self.lambda_ = self.alpha**2 * (self.dim_x + self.kappa) - self.dim_x
-        self.gamma_sq = self.dim_x + self.lambda_
+        self.gamma = np.sqrt(self.dim_x + self.lambda_)
         # Sigma point weights
         self.Wm = np.zeros(2*self.dim_x + 1)
         self.Wc = np.zeros(2*self.dim_x + 1)
@@ -86,32 +86,19 @@ class UKF:
         if self.state_initialized is False:
             return
         
+        print("dt: ", dt)
+
         # Compute sigma points
         self.get_sigma_points()
-
-        print("Sigma points:")
-        print(self.sigma_points)
-        print("\n")
 
         # Calculate transition of sigma points through state transition model
         sigma_points_pred = np.zeros((self.dim_x, 2*self.dim_x + 1))
         for i in range(2*self.dim_x + 1):
             sigma_points_pred[:, i] = self.state_transition(self.sigma_points[:, i], dt)
-        
-        print("Sigma points pred:")
-        print(sigma_points_pred)
-        print("\n")
 
         # Compute predicted mean
         # self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
         self.x = np.average(sigma_points_pred, axis=1, weights=self.Wm)
-
-        print("X prediction:")
-        print(self.x)
-        print("\n")
-        print("X groundtruth:")
-        print(self.gt_car[0:6])
-        print("\n")
 
         # Compute predicted covariance
         self.Sigma = np.zeros((self.dim_x, self.dim_x))
@@ -133,10 +120,6 @@ class UKF:
         # get new sigma points from pred. state and state covariance
         self.get_sigma_points()
 
-        print("Sigma points b4 upd:")
-        print(self.sigma_points)
-        print("\n")
-
         # transform position sigma points to measurement space
         Z_sigma = np.zeros((6, 2*self.dim_x + 1))
         for i in range(2*self.dim_x + 1):
@@ -145,8 +128,8 @@ class UKF:
         Z_sigma[3:, :] = (Z_sigma[:3, :] - Z_sigma_old[:3, :])/dt
 
         # mean of predicted measurement
-        # z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
-        z_sigma_mean = np.average(Z_sigma, axis=1, weights=self.Wm)
+        z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
+        # z_sigma_mean = np.average(Z_sigma, axis=1, weights=self.Wm)
 
         # covariance of predicted measurement
         S = np.zeros((self.dim_x, self.dim_x))
@@ -168,10 +151,8 @@ class UKF:
 
         print("X update:")
         print(self.x)
-        print("\n")
         print("X groundtruth:")
         print(self.gt_car[0:6])
-        print("\n")
     
     def state_transition(self, x: np.array, dt: float) -> np.array:
         ''' State transition model for target
@@ -279,6 +260,7 @@ class UKF:
         # Call the UKF algorithm
         self.prediction_step(dt)
         self.update_step(dt)
+        # self.publish_data()
 
     def publish_data(self):
         odom = Odometry()
@@ -298,7 +280,7 @@ class UKF:
         self.pub.publish(odom)
 
 if __name__ == '__main__':
-    np.set_printoptions(precision=4)
+    # np.set_printoptions(precision=4)
     rospy.init_node('ukf_node')
     ukf = UKF()
     rospy.spin()
