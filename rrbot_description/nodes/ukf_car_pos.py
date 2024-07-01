@@ -53,7 +53,10 @@ class UKF:
         self.Wc[0] = self.lambda_ / (self.dim_x + self.lambda_) + (1 - self.alpha**2 + self.beta)
         for i in range(1, 2*self.dim_x + 1):
             self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
-        
+        # Todo: check self.wm, for debugging, create pos. weight vector
+        self.Wm = np.concatenate((np.array([self.dim_x*2]), np.array([1]*int(self.dim_x*2))))/(self.dim_x*4)
+        self.Wc = self.Wm
+
         # Initialize state vector
         self.gt_car = np.zeros(10)
         self.gt_drone = np.zeros(10)
@@ -100,7 +103,8 @@ class UKF:
         print("\n")
 
         # Compute predicted mean
-        self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
+        # self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
+        self.x = np.average(sigma_points_pred, axis=1, weights=self.Wm)
 
         print("X prediction:")
         print(self.x)
@@ -141,7 +145,8 @@ class UKF:
         Z_sigma[3:, :] = (Z_sigma[:3, :] - Z_sigma_old[:3, :])/dt
 
         # mean of predicted measurement
-        z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
+        # z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
+        z_sigma_mean = np.average(Z_sigma, axis=1, weights=self.Wm)
 
         # covariance of predicted measurement
         S = np.zeros((self.dim_x, self.dim_x))
@@ -201,16 +206,7 @@ class UKF:
         
     def get_sigma_points(self):
         self.sigma_points = np.tile(self.x, (self.dim_x*2+1, 1)).T
-        # print("X:")
-        # print(self.sigma_points[:, 0])
-        # print("\n")
-        # print("Sigma:")
-        # print(self.Sigma)
-        # print("\n")
-        L = np.diag(np.diag(np.linalg.cholesky(self.gamma_sq*self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
-        # print("L:")
-        # print(L)
-        # print("\n")
+        L = np.diag(np.diag(np.linalg.cholesky(self.gamma**2*self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
         self.sigma_points[:, 1:1+self.dim_x] += L
         self.sigma_points[:, 1+self.dim_x:] -= L
 
