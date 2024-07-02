@@ -166,8 +166,8 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        pos_pred = x[0:3] + np.random.randn(3)*0.01
-        vel_pred = x[3:6] + np.random.randn(3)*0.001  # assumption of constant velocity
+        pos_pred = x[0:3]# + np.random.randn(3)*0.01
+        vel_pred = x[3:6]# + np.random.randn(3)*0.001  # assumption of constant velocity
         # pos_pred = x[0:3] + dt*x[3:6]
         # vel_pred = x[3:6]               # assumption of constant velocity
 
