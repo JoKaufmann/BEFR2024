@@ -98,6 +98,7 @@ class UKF:
         self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
 
         # Compute predicted covariance
+        self.Sigma = np.zeros((self.dim_x, self.dim_x))
         for i in range(2*self.dim_x + 1):
             self.Sigma += self.Wc[i]*np.outer(sigma_points_pred[:, i]-self.x, sigma_points_pred[:, i]-self.x)
         self.Sigma += self.R
@@ -270,11 +271,19 @@ class UKF:
         odom.pose.pose.position.y = self.x[1]
         odom.pose.pose.position.z = self.x[2]
 
+        # Set the covariance for position (orientation = 0)
+        odom.pose.covariance = np.block([   [ self.Sigma[0:3, 0:3]  , np.zeros((3,3))  ],
+                                            [ np.zeros((3,3))       , np.zeros((3,3))  ]]).flatten(order='C') # row-major
+        
         # Set the velocity
         odom.twist.twist.linear.x = self.x[3]
         odom.twist.twist.linear.y = self.x[4]
         odom.twist.twist.linear.z = self.x[5]
 
+        # Set the covariance for velocity
+        odom.twist.covariance = np.block([   [ self.Sigma[3:6, 3:6]  , np.zeros((3,3))  ],
+                                            [ np.zeros((3,3))       , np.zeros((3,3))  ]]).flatten(order='C') # row-major
+        
         self.pub.publish(odom)
 
 if __name__ == '__main__':
