@@ -67,8 +67,8 @@ class UKF:
         self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))  # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
-        self.R = np.diag(np.array([1, 1, 1, 1, 1, 1]))*10              #TODO: Define process noise
-        self.Q = np.diag(np.array([4, 4., 0.25, 1, 1, 1]))*0.01          #TODO: Define measurement noise
+        self.R = np.diag(np.array([1, 1, 1, 1, 1, 1]))*10           #TODO: Define process noise
+        self.Q = np.diag(np.array([4, 4., 0.25, 1, 1, 1]))*0.01     #TODO: Define measurement noise
 
         # Set initial timestamp
         #? currently done in groundtruth_car_callback once the first groundtruth data is received
@@ -96,10 +96,8 @@ class UKF:
 
         # Compute predicted mean
         self.x = np.sum(self.Wm*sigma_points_pred, axis=1)
-        # self.x = np.average(sigma_points_pred, axis=1, weights=self.Wm)
 
         # Compute predicted covariance
-        self.Sigma = np.zeros((self.dim_x, self.dim_x))
         for i in range(2*self.dim_x + 1):
             self.Sigma += self.Wc[i]*np.outer(sigma_points_pred[:, i]-self.x, sigma_points_pred[:, i]-self.x)
         self.Sigma += self.R
@@ -126,7 +124,6 @@ class UKF:
 
         # mean of predicted measurement
         z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
-        # z_sigma_mean = np.average(Z_sigma, axis=1, weights=self.Wm)
 
         # covariance of predicted measurement
         S = np.zeros((self.dim_x, self.dim_x))
@@ -138,14 +135,14 @@ class UKF:
         Sigma_hat = np.zeros((self.dim_x, 6))
         for i in range(2*self.dim_x + 1):
             Sigma_hat += self.Wc[i]*np.outer(self.sigma_points[:, i]-self.x, Z_sigma[:, i]-z_sigma_mean)
-        # print(f'S: {S}\n')
-        print(f'Sigma_hat: {Sigma_hat}\n')
         
         # Kalman gain
         K = Sigma_hat@np.linalg.inv(S)
-        # print(f'K: {K}\n')
+
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
+        # calc. velocity from position change
+        self.x[3:] = (K@(self.dcam - z_sigma_mean))[:3]/dt    
         self.Sigma -= K@S@K.T
     
     def state_transition(self, x: np.array, dt: float) -> np.array:
@@ -156,8 +153,11 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        pos_pred = x[0:3]# + np.random.randn(3)*0.01
-        vel_pred = x[3:6]# + np.random.randn(3)*0.001  # assumption of constant velocity
+        # constant position model
+        pos_pred = x[0:3]
+        vel_pred = x[3:6]*0
+
+        # constant velocity model
         # pos_pred = x[0:3] + dt*x[3:6]
         # vel_pred = x[3:6]               # assumption of constant velocity
 
@@ -278,7 +278,6 @@ class UKF:
         self.pub.publish(odom)
 
 if __name__ == '__main__':
-    np.set_printoptions(precision=4)
     rospy.init_node('ukf_node')
     ukf = UKF()
     rospy.spin()
