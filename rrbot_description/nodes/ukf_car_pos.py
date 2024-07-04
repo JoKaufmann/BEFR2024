@@ -22,6 +22,11 @@ def qv_inv(q1):
 
 class UKF:
     def __init__(self):
+        # State model 
+        #* 'CVM' - const. vel. model
+        #* 'CPM' - const. pos. model
+        self.state_model ='CPM' # ToDo: change
+
         # Initialization flags
         self.state_initialized = False
 
@@ -47,13 +52,13 @@ class UKF:
         self.lambda_ = self.alpha**2 * (self.dim_x + self.kappa) - self.dim_x
         self.gamma = np.sqrt(self.dim_x + self.lambda_)
         # Sigma point weights
-        self.Wm = np.zeros(2*self.dim_x + 1)
-        self.Wc = np.zeros(2*self.dim_x + 1)
-        self.Wm[0] = self.lambda_ / (self.dim_x + self.lambda_)
-        self.Wc[0] = self.lambda_ / (self.dim_x + self.lambda_) + (1 - self.alpha**2 + self.beta)
-        for i in range(1, 2*self.dim_x + 1):
-            self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
-        # Todo: check self.wm, for debugging, create pos. weight vector
+        # self.Wm = np.zeros(2*self.dim_x + 1)
+        # self.Wc = np.zeros(2*self.dim_x + 1)
+        # self.Wm[0] = self.lambda_ / (self.dim_x + self.lambda_)
+        # self.Wc[0] = self.lambda_ / (self.dim_x + self.lambda_) + (1 - self.alpha**2 + self.beta)
+        # for i in range(1, 2*self.dim_x + 1):
+        #     self.Wm[i] = self.Wc[i] = 1 / (2*(self.dim_x + self.lambda_))
+        #! Alternative way to calculate weights, to prevent non positive definite matrix in chol. decomposition
         self.Wm = np.concatenate((np.array([self.dim_x*2]), np.array([1]*int(self.dim_x*2))))/(self.dim_x*4)
         self.Wc = self.Wm
 
@@ -63,16 +68,12 @@ class UKF:
         self.x = np.zeros(self.dim_x)       # (target_pos, target_vel)
 
         # Initialize covariance matrix
-        self.Sigma = np.eye(self.dim_x)                             #TODO: Define Covariance
+        self.Sigma = np.diag(np.array([1, 1, 1, 1, 1, 1]))  #TODO: Define Covariance
         self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))  # dimension len(x) x 2*len(x) + 1
         
         # Initialize noise matrices
-        self.R = np.diag(np.array([1, 1, 1, 1, 1, 1]))*10           #TODO: Define process noise
-        self.Q = np.diag(np.array([4, 4., 0.25, 1, 1, 1]))*0.01     #TODO: Define measurement noise
-
-        # Set initial timestamp
-        #? currently done in groundtruth_car_callback once the first groundtruth data is received
-        # self.prev_time = rospy.Time.now()
+        self.R = np.diag(np.array([1, 1, 1, 1, 1, 1]))*10         #TODO: Define process noise
+        self.Q = np.diag(np.array([4, 4, 0.25, 1, 1, 1]))*0.01   #TODO: Define measurement noise
 
         # Initialize subscriber
         rospy.Subscriber("rrbot/fake_detection", PointStamped, self.depth_cam_callback)
@@ -142,8 +143,9 @@ class UKF:
 
         # update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
-        # calc. velocity from position change
-        self.x[3:] = (K@(self.dcam - z_sigma_mean))[:3]/dt    
+        if self.state_model == 'CPM':
+            # calc. velocity from position change
+            self.x[3:] = (K@(self.dcam - z_sigma_mean))[:3]/dt    
         self.Sigma -= K@S@K.T
     
     def state_transition(self, x: np.array, dt: float) -> np.array:
@@ -154,13 +156,14 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        # constant position model
-        pos_pred = x[0:3]
-        vel_pred = x[3:6]*0
-
-        # constant velocity model
-        # pos_pred = x[0:3] + dt*x[3:6]
-        # vel_pred = x[3:6]               # assumption of constant velocity
+        if self.state_model == 'CPM':
+            # constant position model
+            pos_pred = x[0:3]
+            vel_pred = x[3:6]*0
+        elif self.state_model == 'CVM':
+            # constant velocity model
+            pos_pred = x[0:3] + dt*x[3:6]
+            vel_pred = x[3:6]               # assumption of constant velocity
 
         return np.concatenate((pos_pred, vel_pred))
 
@@ -185,7 +188,8 @@ class UKF:
         
     def get_sigma_points(self):
         self.sigma_points = np.tile(self.x, (self.dim_x*2+1, 1)).T
-        L = np.diag(np.diag(np.linalg.cholesky(self.gamma**2*self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        # L = np.diag(np.diag(np.linalg.cholesky(self.gamma**2*self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        L = np.linalg.cholesky(self.gamma**2*self.Sigma)
         self.sigma_points[:, 1:1+self.dim_x] += L
         self.sigma_points[:, 1+self.dim_x:] -= L
 
