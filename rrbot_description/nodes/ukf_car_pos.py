@@ -141,8 +141,8 @@ class UKF:
         
         # Kalman gain
         K = Sigma_hat@np.linalg.inv(S)
-        if np.any(K[3:5,:] > 0):
-            print(f'K: {K}\n')
+        # if np.any(K[3:5,:] > 0):
+        #     print(f'K: {K}\n')
 
         # Update state and covariance
         self.x += K@(self.dcam - z_sigma_mean)
