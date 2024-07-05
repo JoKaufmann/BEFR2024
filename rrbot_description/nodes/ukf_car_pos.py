@@ -66,8 +66,10 @@ class UKF:
         self.sigma_points = np.zeros((self.dim_x, 2*self.dim_x+1))
         
         # Initialize noise matrices
-        self.R = np.diag(np.array([2, 2, 2, 10, 10, 10]))*100
-        self.Q = np.diag(np.array([4., 4., 0.25, .5, .5, .5]))*0.01
+        # self.R = np.diag(np.array([   4,    4,    1,   10,   10,    5]))*10
+        # self.Q = np.diag(np.array([   4,    4, 0.25,    1,    1,    1]))*0.005
+        self.R = np.diag(np.array([   1,    1,    1,    1,    1,    1]))*100
+        self.Q = np.diag(np.array([  .4,   .4, .025,    1,    1,    1]))*0.0001
 
         # Initialize subscribers
         rospy.Subscriber("rrbot/fake_detection", PointStamped, self.depth_cam_callback)
@@ -99,6 +101,8 @@ class UKF:
             self.Sigma += self.Wc[i]*np.outer(sigma_points_pred[:, i]-self.x, sigma_points_pred[:, i]-self.x)
         self.Sigma += self.R
 
+        print(f'Sigma: {self.Sigma}\n')
+
         
     def update_step(self, dt):
         if self.state_initialized is False:
@@ -123,7 +127,6 @@ class UKF:
 
         # Mean of predicted measurement
         z_sigma_mean = np.sum(self.Wm*Z_sigma, axis=1)
-        # z_sigma_mean = np.average(Z_sigma, axis=1, weights=self.Wm)
 
         # Covariance of predicted measurement
         S = np.zeros((self.dim_x, self.dim_x))
@@ -154,13 +157,13 @@ class UKF:
         Returns:
             np.array: predicted state vector
         '''
-        #* Noise model
-        pos_pred = x[0:3]# + np.random.randn(3)*0.01
-        vel_pred = x[3:6]# + np.random.randn(3)*0.001
+        #* Constant position model
+        # pos_pred = x[0:3]
+        # vel_pred = x[3:6]
         
         #* Constant velocity model
-        # pos_pred = x[0:3] + dt*x[3:6]
-        # vel_pred = x[3:6]
+        pos_pred = x[0:3] + dt*x[3:6]
+        vel_pred = x[3:6]
 
         return np.concatenate((pos_pred, vel_pred))
 
@@ -187,7 +190,8 @@ class UKF:
    
     def get_sigma_points(self):
         self.sigma_points = np.tile(self.x, (self.dim_x*2+1, 1)).T
-        L = np.diag(np.diag(np.linalg.cholesky(self.gamma**2*self.Sigma)))    # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        # cholesky decomposition of Sigma (already returns the sqrt of Sigma, since A=LL*)
+        L = np.diag(np.diag(np.linalg.cholesky(self.gamma**2*self.Sigma)))
         self.sigma_points[:, 1:1+self.dim_x] += L
         self.sigma_points[:, 1+self.dim_x:] -= L
 
